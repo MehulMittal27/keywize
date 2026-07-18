@@ -1,168 +1,208 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { v4 as uuid } from "uuid";
+import { getMission, setMission } from "@/lib/store";
+import { analyzeVoiceTrust } from "@/lib/voiceTrust";
+import { calculateRiskScore } from "@/lib/riskScore";
+import { rankQuotes } from "@/lib/ranking";
 
-const SUPPORTED_TOOLS = new Set([
-  "create_job_spec",
-  "save_quote",
-  "analyze_voice_trust",
-  "classify_vendor_tone",
-  "update_negotiation",
-] as const);
+/**
+ * POST /api/elevenlabs/tools
+ *
+ * Receives tool calls from the ElevenLabs conversation agent.
+ * The agent calls this endpoint with a JSON body containing:
+ *   { tool: string, params: object }
+ *
+ * Supported tools:
+ *   create_job_spec     — creates a mission from gathered intake data
+ *   save_quote          — saves a vendor quote to a mission
+ *   analyze_voice_trust — runs VoiceTrust analysis on a vendor response
+ *   classify_vendor_tone — classifies a vendor response (heuristic)
+ *   update_negotiation  — records a negotiation outcome
+ */
+export async function POST(request: NextRequest) {
+  let body: { tool: string; params: Record<string, unknown> };
 
-type SupportedToolName =
-  | "create_job_spec"
-  | "save_quote"
-  | "analyze_voice_trust"
-  | "classify_vendor_tone"
-  | "update_negotiation";
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
-type ElevenLabsToolRequest = {
-  // The current agent creation script configures ElevenLabs webhook tools with
-  // visible request_body_schema properties named tool and payload. Legacy
-  // aliases remain accepted so older agent configs keep working.
-  tool?: unknown;
-  payload?: unknown;
-  tool_name?: unknown;
-  name?: unknown;
-  toolCall?: {
-    name?: unknown;
-  };
-  parameters?: unknown;
-  args?: unknown;
-  input?: unknown;
-};
+  const { tool, params } = body;
 
-type ParsedPayloadResult =
-  | {
-      ok: true;
-      payload: unknown;
+  switch (tool) {
+    // ─── create_job_spec ──────────────────────────────────────────────────────
+    case "create_job_spec": {
+      // Forward to the intake route logic inline
+      const id = uuid();
+      const mission = {
+        id,
+        jobSpec: {
+          id: uuid(),
+          createdAt: new Date().toISOString(),
+          ...params,
+        },
+        quotes: [],
+        status: "intake_complete",
+        callLog: [
+          {
+            timestamp: new Date().toISOString(),
+            event: "intake_complete",
+            details: "Job spec created via ElevenLabs agent.",
+          },
+        ],
+        recommendation: null,
+      };
+      // @ts-expect-error — agent params are loosely typed; store accepts Mission
+      setMission(mission);
+      return NextResponse.json({ success: true, missionId: id });
     }
-  | {
-      ok: false;
-      error: string;
-    };
 
-function getToolName(body: ElevenLabsToolRequest): string | undefined {
-  const candidates = [body.tool, body.tool_name, body.name, body.toolCall?.name];
-  const toolName = candidates.find((candidate): candidate is string => typeof candidate === "string");
+    // ─── save_quote ───────────────────────────────────────────────────────────
+    case "save_quote": {
+      const missionId = String(params.missionId ?? "");
+      if (!missionId) {
+        return NextResponse.json({ error: "missionId required" }, { status: 422 });
+      }
+      const mission = getMission(missionId);
+      if (!mission) {
+        return NextResponse.json({ error: "Mission not found" }, { status: 404 });
+      }
 
-  return toolName;
+      const quote = {
+        id: uuid(),
+        missionId,
+        riskScore: 0,
+        riskLevel: "Low" as const,
+        voiceTrustSignals: [],
+        voiceTrustScore: 50,
+        ...params,
+      };
+
+      // @ts-expect-error — loosely typed from agent
+      const [score, level] = calculateRiskScore(quote, mission.jobSpec);
+      quote.riskScore = score;
+      // @ts-expect-error — loosely typed
+      quote.riskLevel = level;
+
+      // @ts-expect-error — loosely typed from agent
+      mission.quotes.push(quote);
+      mission.callLog.push({
+        timestamp: new Date().toISOString(),
+        event: "quote_received",
+        details: `Quote saved via ElevenLabs agent for vendor: ${params.vendorName ?? "unknown"}`,
+      });
+
+      if (mission.quotes.length >= 3) {
+        mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
+        mission.status = "complete";
+      }
+
+      setMission(mission);
+      return NextResponse.json({ success: true, quoteId: quote.id });
+    }
+
+    // ─── analyze_voice_trust ──────────────────────────────────────────────────
+    case "analyze_voice_trust": {
+      if (!params.quoteId || !params.questionType || params.vendorText === undefined) {
+        return NextResponse.json(
+          { error: "quoteId, questionType, and vendorText are required" },
+          { status: 422 }
+        );
+      }
+
+      const signal = analyzeVoiceTrust({
+        quoteId: String(params.quoteId),
+        questionType: params.questionType as never,
+        vendorText: String(params.vendorText),
+        pauseMs: Number(params.pauseMs ?? 0),
+        fillerWords: (params.fillerWords as string[]) ?? [],
+        evasivePhrases: (params.evasivePhrases as string[]) ?? [],
+        speechRateChangePct: params.speechRateChangePct as number | undefined,
+        pitchVariance: params.pitchVariance as number | undefined,
+        volumeVariance: params.volumeVariance as number | undefined,
+      });
+
+      return NextResponse.json({ success: true, signal });
+    }
+
+    // ─── classify_vendor_tone ─────────────────────────────────────────────────
+    case "classify_vendor_tone": {
+      const text = String(params.vendorText ?? "").toLowerCase();
+      let tone = "neutral";
+      let note = "";
+
+      if (
+        text.includes("starts at") ||
+        text.includes("technician will confirm") ||
+        text.includes("depends on")
+      ) {
+        tone = "evasive";
+        note = "Vendor used evasive language around pricing.";
+      } else if (
+        text.includes("all-in") ||
+        text.includes("total") ||
+        text.includes("no additional")
+      ) {
+        tone = "transparent";
+        note = "Vendor gave clear all-in pricing language.";
+      } else if (text.includes("drill") && !text.includes("no drill")) {
+        tone = "aggressive";
+        note = "Vendor mentioned drilling without non-destructive first policy.";
+      }
+
+      return NextResponse.json({ success: true, tone, note });
+    }
+
+    // ─── update_negotiation ───────────────────────────────────────────────────
+    case "update_negotiation": {
+      const missionId = String(params.missionId ?? "");
+      const quoteId = String(params.quoteId ?? "");
+      if (!missionId || !quoteId) {
+        return NextResponse.json(
+          { error: "missionId and quoteId required" },
+          { status: 422 }
+        );
+      }
+
+      const mission = getMission(missionId);
+      if (!mission) {
+        return NextResponse.json({ error: "Mission not found" }, { status: 404 });
+      }
+
+      const idx = mission.quotes.findIndex((q) => q.id === quoteId);
+      if (idx === -1) {
+        return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+      }
+
+      const updated = { ...mission.quotes[idx] };
+      if (params.newTotal !== undefined) updated.totalEstimate = Number(params.newTotal);
+      if (params.isTotalAllIn !== undefined) updated.isTotalAllIn = Boolean(params.isTotalAllIn);
+      if (params.keysIncluded !== undefined) updated.keysIncluded = Number(params.keysIncluded);
+      updated.priceOrTermsChanged = true;
+
+      const [score, level] = calculateRiskScore(updated, mission.jobSpec);
+      updated.riskScore = score;
+      updated.riskLevel = level;
+
+      mission.quotes[idx] = updated;
+      mission.callLog.push({
+        timestamp: new Date().toISOString(),
+        event: "negotiation_complete",
+        details: `Negotiation recorded via ElevenLabs agent. New total: $${updated.totalEstimate}`,
+      });
+
+      mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
+      mission.status = "complete";
+      setMission(mission);
+
+      return NextResponse.json({ success: true, updatedQuote: updated });
+    }
+
+    default:
+      return NextResponse.json(
+        { error: `Unknown tool: ${tool}` },
+        { status: 422 }
+      );
+  }
 }
-
-function getRawPayload(body: ElevenLabsToolRequest): unknown {
-  if (Object.hasOwn(body, "payload")) {
-    return body.payload;
-  }
-
-  if (Object.hasOwn(body, "parameters")) {
-    return body.parameters;
-  }
-
-  if (Object.hasOwn(body, "args")) {
-    return body.args;
-  }
-
-  if (Object.hasOwn(body, "input")) {
-    return body.input;
-  }
-
-  return {};
-}
-
-function parseToolPayload(rawPayload: unknown): ParsedPayloadResult {
-  if (typeof rawPayload !== "string") {
-    return {
-      ok: true,
-      payload: rawPayload,
-    };
-  }
-
-  try {
-    return {
-      ok: true,
-      payload: JSON.parse(rawPayload),
-    };
-  } catch {
-    return {
-      ok: false,
-      error: "Invalid JSON in payload string.",
-    };
-  }
-}
-
-function methodNotAllowed() {
-  return NextResponse.json(
-    {
-      success: false,
-      error: "Method not allowed. Use POST with a JSON body.",
-      supportedMethods: ["POST"],
-    },
-    {
-      status: 405,
-      headers: {
-        Allow: "POST",
-      },
-    },
-  );
-}
-
-export async function POST(request: Request) {
-  let body: ElevenLabsToolRequest;
-
-  try {
-    body = (await request.json()) as ElevenLabsToolRequest;
-  } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Invalid JSON body.",
-      },
-      { status: 400 },
-    );
-  }
-
-  const toolName = getToolName(body);
-
-  if (!toolName || !SUPPORTED_TOOLS.has(toolName as SupportedToolName)) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Unsupported tool name.",
-        receivedToolName: toolName ?? null,
-        supportedToolNames: Array.from(SUPPORTED_TOOLS),
-      },
-      { status: 400 },
-    );
-  }
-
-  const parsedPayload = parseToolPayload(getRawPayload(body));
-
-  if (!parsedPayload.ok) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: parsedPayload.error,
-      },
-      { status: 400 },
-    );
-  }
-
-  console.log("ElevenLabs tool call received", {
-    toolName,
-    payloadType: typeof parsedPayload.payload,
-  });
-
-  return NextResponse.json({
-    success: true,
-    toolName,
-    message: "Tool call accepted. Payload was parsed; no data was persisted and no external services were called.",
-    result: {
-      status: "accepted",
-      payload: parsedPayload.payload,
-    },
-  });
-}
-
-export const GET = methodNotAllowed;
-export const PUT = methodNotAllowed;
-export const PATCH = methodNotAllowed;
-export const DELETE = methodNotAllowed;
