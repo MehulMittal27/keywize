@@ -4,8 +4,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/convai/agents";
-const ENV_FILE_PATH = path.resolve(process.cwd(), ".env.local");
+const ELEVENLABS_CONVAI_AGENTS_BASE_URL = "https://api.elevenlabs.io/v1/convai/agents";
+// ElevenLabs currently creates Conversational AI agents by POSTing to the
+// dedicated create endpoint, not the list endpoint. A 405 here usually means
+// this path drifted back to /v1/convai/agents or the API shape changed.
+const ELEVENLABS_AGENT_CREATE_URL = `${ELEVENLABS_CONVAI_AGENTS_BASE_URL}/create`;
+const ENV_FILE_PATH = path.resolve(process.cwd(), process.env.KEYWIZE_ENV_FILE_PATH ?? ".env.local");
 const TOOL_ENDPOINT_PATH = "/api/elevenlabs/tools";
 
 const AGENT_DEFINITIONS = [
@@ -162,7 +166,7 @@ function buildAgentPayload({ name, prompt, tools }, webhookUrl) {
 }
 
 async function createElevenLabsAgent({ apiKey, payload }) {
-  const response = await fetch(ELEVENLABS_API_URL, {
+  const response = await fetch(ELEVENLABS_AGENT_CREATE_URL, {
     method: "POST",
     headers: {
       "xi-api-key": apiKey,
@@ -175,7 +179,13 @@ async function createElevenLabsAgent({ apiKey, payload }) {
   const body = responseText ? safeParseJson(responseText) : {};
 
   if (!response.ok) {
-    throw new Error(`ElevenLabs agent creation failed with ${response.status}: ${summarizeApiError(body, responseText)}`);
+    const endpointHint =
+      response.status === 405
+        ? " Check that ELEVENLABS_AGENT_CREATE_URL still points at the documented POST /v1/convai/agents/create endpoint and update the payload schema if ElevenLabs changed it."
+        : "";
+    throw new Error(
+      `ElevenLabs agent creation failed with ${response.status} at POST ${ELEVENLABS_AGENT_CREATE_URL}: ${summarizeApiError(body, responseText)}${endpointHint}`,
+    );
   }
 
   return body;

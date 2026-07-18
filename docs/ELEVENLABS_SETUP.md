@@ -15,6 +15,22 @@ Create three agents:
 3. Closer agent
    - Uses only real competing quotes to negotiate price or terms and produces the final recommendation.
 
+## Creating agents
+
+After setting `ELEVENLABS_API_KEY` and `NEXT_PUBLIC_APP_URL` in `.env.local`, create the three Conversational AI agents with:
+
+```bash
+node scripts/create-elevenlabs-agents.mjs
+```
+
+The script posts to the documented ElevenLabs create endpoint:
+
+```txt
+POST https://api.elevenlabs.io/v1/convai/agents/create
+```
+
+Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
+
 ## Tool endpoints
 
 The agents should call backend tools for:
