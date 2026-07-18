@@ -57,7 +57,7 @@ Configure each ElevenLabs agent tool as a JSON webhook that sends a `POST` reque
 https://<keywize-host>/api/elevenlabs/tools
 ```
 
-Use `Content-Type: application/json`. The endpoint accepts either `tool_name` or `name` as the tool identifier, plus a payload object such as `parameters`, `args`, or `input`.
+Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, `tool_name` should be a string property with `constant_value` set to the tool name, and `parameters` should be an object property with a `description`. Do not use unsupported plain JSON Schema keys such as `const` or `additionalProperties` in the ElevenLabs tool schema. The endpoint accepts either `tool_name` or `name` as the tool identifier, plus a payload object such as `parameters`, `args`, or `input`.
 
 Successful response shape:
 

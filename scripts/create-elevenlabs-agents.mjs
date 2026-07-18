@@ -116,8 +116,11 @@ function ensureTrailingSlash(url) {
 }
 
 function buildWebhookToolConfig(toolName, webhookUrl) {
-  // Schema assumption: ElevenLabs Conversational AI accepts webhook tools in
-  // conversation_config.agent.prompt.tools with an api_schema object.
+  // ElevenLabs webhook request_body_schema uses its own constrained schema
+  // shape, not full JSON Schema. Properties must say how they are populated
+  // with description, dynamic_variable, is_system_provided, constant_value, or
+  // is_omitted, and unsupported JSON Schema keys such as const and
+  // additionalProperties are rejected.
   return {
     type: "webhook",
     name: toolName,
@@ -133,19 +136,70 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
         properties: {
           tool_name: {
             type: "string",
-            const: toolName,
+            constant_value: toolName,
           },
           parameters: {
             type: "object",
             description: "Tool-specific JSON parameters collected by the agent.",
-            additionalProperties: true,
           },
         },
         required: ["tool_name", "parameters"],
-        additionalProperties: true,
       },
     },
   };
+}
+
+function validateElevenLabsToolSchema(payloads) {
+  for (const { name, payload } of payloads) {
+    const tools = payload.conversation_config?.agent?.prompt?.tools ?? [];
+
+    for (const tool of tools) {
+      const schema = tool.api_schema?.request_body_schema;
+
+      if (!schema) {
+        throw new Error(`${name} tool ${tool.name} is missing request_body_schema.`);
+      }
+
+      assertNoUnsupportedSchemaKeys(schema, `${name}.${tool.name}.request_body_schema`);
+      assertToolBodyPropertySources(schema, `${name}.${tool.name}.request_body_schema`);
+    }
+  }
+}
+
+function assertNoUnsupportedSchemaKeys(value, pathLabel) {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, childValue] of Object.entries(value)) {
+    if (key === "const" || key === "additionalProperties") {
+      throw new Error(`ElevenLabs tool schema at ${pathLabel} uses unsupported key ${key}.`);
+    }
+
+    assertNoUnsupportedSchemaKeys(childValue, `${pathLabel}.${key}`);
+  }
+}
+
+function assertToolBodyPropertySources(schema, pathLabel) {
+  if (schema.type !== "object" || !schema.properties || typeof schema.properties !== "object") {
+    throw new Error(`ElevenLabs tool schema at ${pathLabel} must be an object with properties.`);
+  }
+
+  for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
+    const sourceKeys = [
+      "description",
+      "dynamic_variable",
+      "is_system_provided",
+      "constant_value",
+      "is_omitted",
+    ].filter((key) => Object.hasOwn(propertySchema, key));
+
+    if (sourceKeys.length !== 1) {
+      throw new Error(
+        `ElevenLabs tool schema property ${pathLabel}.properties.${propertyName} must set exactly one value source; found ${sourceKeys.length}.`,
+      );
+    }
+  }
 }
 
 function buildAgentPayload({ name, prompt, tools }, webhookUrl) {
@@ -276,9 +330,20 @@ async function main() {
     payload: buildAgentPayload(agentInput, webhookUrl),
   }));
 
+  validateElevenLabsToolSchema(payloads);
+
   if (dryRun) {
+    const toolSummary = payloads
+      .map(({ name, payload }) => {
+        const toolNames = payload.conversation_config.agent.prompt.tools.map((tool) => tool.name).join(", ");
+        return `${name}: ${toolNames}`;
+      })
+      .join("\n");
+
     console.log(`Dry run validated ${payloads.length} ElevenLabs agent payloads.`);
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
+    console.log("Tool schema sanity check passed: no const or additionalProperties keys; tool_name uses constant_value.");
+    console.log(`Tool split:\n${toolSummary}`);
     console.log("No agents were created and .env.local was not updated.");
     return;
   }
