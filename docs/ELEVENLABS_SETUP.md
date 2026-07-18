@@ -15,6 +15,22 @@ Create three agents:
 3. Closer agent
    - Uses only real competing quotes to negotiate price or terms and produces the final recommendation.
 
+## Creating agents
+
+After setting `ELEVENLABS_API_KEY` and `NEXT_PUBLIC_APP_URL` in `.env.local`, create the three Conversational AI agents with:
+
+```bash
+node scripts/create-elevenlabs-agents.mjs
+```
+
+The script posts to the documented ElevenLabs create endpoint:
+
+```txt
+POST https://api.elevenlabs.io/v1/convai/agents/create
+```
+
+Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
+
 ## Tool endpoints
 
 The agents should call backend tools for:
@@ -29,6 +45,80 @@ MVP endpoint:
 
 ```txt
 POST /api/elevenlabs/tools
+```
+
+For now this endpoint only parses and logs tool calls. It does not persist real user data, store secrets, or call external services.
+
+### Tools webhook contract
+
+Configure each ElevenLabs agent tool as a JSON webhook that sends a `POST` request to the Keywize deployment URL:
+
+```txt
+https://<keywize-host>/api/elevenlabs/tools
+```
+
+Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, define visible body parameters under `properties`: `tool` as a required string property with `constant_value` set to the tool name, and `payload` as a required string property with a description telling the agent to send a JSON string containing the full structured payload for that tool. This is ElevenLabs's parameter-object schema, not arbitrary JSON Schema. Do not use unsupported plain JSON Schema keys such as `const` or `additionalProperties` in the ElevenLabs tool schema. The endpoint also accepts older aliases such as `tool_name`, `name`, `parameters`, `args`, and `input` so existing agent configs keep working.
+
+Successful response shape:
+
+```json
+{
+  "success": true,
+  "toolName": "save_quote",
+  "message": "Tool call accepted. No data was persisted and no external services were called.",
+  "result": {
+    "status": "accepted"
+  }
+}
+```
+
+Error responses use `success: false` with a clear `error` message. Invalid JSON returns `400`, unsupported tool names return `400`, and non-POST methods return `405` with `Allow: POST`.
+
+### Example payloads
+
+Create the lockout job spec after intake confirms user authorization and reminds the user to have proof of residence ready:
+
+```json
+{
+  "tool": "create_job_spec",
+  "payload": "{\"caseType\":\"home lockout\",\"urgency\":\"as soon as possible\",\"propertyType\":\"residential\",\"doorType\":\"front door\",\"lockType\":\"deadbolt\",\"doorOpen\":false,\"keyStolen\":false,\"brokenKeyVisible\":false,\"needRekey\":false,\"newKeysNeeded\":2,\"idealPrice\":120,\"maxPrice\":150,\"authorizationConfirmed\":true,\"locationCity\":\"Example City\",\"locationZip\":\"00000\"}"
+}
+```
+
+Save a structured locksmith quote from a vendor call:
+
+```json
+{
+  "tool": "save_quote",
+  "payload": "{\"vendorName\":\"Vendor C\",\"phone\":null,\"etaMinutes\":35,\"dispatchFee\":50,\"laborFee\":95,\"partsFee\":0,\"afterHoursFee\":0,\"taxesAndOther\":20,\"totalEstimate\":165,\"isTotalAllIn\":true,\"drillingPolicy\":\"Only if non-destructive entry fails and user approves\",\"idRequired\":true,\"oldKeyDisabled\":true,\"keysIncluded\":2,\"warranty\":\"30 days\",\"quoteConfidence\":\"high\",\"redFlags\":[],\"transcriptEvidence\":[\"The total should be 165 if it is a standard deadbolt.\"],\"transcript\":\"Example transcript excerpt.\"}"
+}
+```
+
+Analyze VoiceTrust as an uncertainty signal, not as lie detection:
+
+```json
+{
+  "tool": "analyze_voice_trust",
+  "payload": "{\"questionType\":\"hidden_fees\",\"vendorText\":\"Uh, the technician will decide when they get there.\",\"pauseMs\":900,\"fillerWords\":[\"uh\"],\"evasivePhrases\":[\"technician will decide\"],\"speechRateChangePct\":-15,\"pitchVariance\":null,\"volumeVariance\":null}"
+}
+```
+
+Classify the vendor tone for ranking context:
+
+```json
+{
+  "tool": "classify_vendor_tone",
+  "payload": "{\"vendorLatestMessage\":\"I can give you the exact lockout price before dispatch.\",\"conversationContext\":\"Vendor B answered hidden fee and drilling policy questions clearly.\"}"
+}
+```
+
+Track negotiation updates using only stored competing quotes as leverage:
+
+```json
+{
+  "tool": "update_negotiation",
+  "payload": "{\"vendorName\":\"Vendor C\",\"beforePrice\":165,\"afterPrice\":145,\"termsChanged\":\"Matched competitor price for booking now\",\"leverageUsed\":[\"Stored Vendor B quote\"],\"transcriptEvidence\":[\"I can match 145 if you can book now.\"],\"priceOrTermsChanged\":true}"
+}
 ```
 
 ## VoiceTrust note
