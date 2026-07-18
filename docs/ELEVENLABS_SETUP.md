@@ -57,7 +57,7 @@ Configure each ElevenLabs agent tool as a JSON webhook that sends a `POST` reque
 https://<keywize-host>/api/elevenlabs/tools
 ```
 
-Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, `tool_name` should be a string property with `constant_value` set to the tool name, and `parameters` should be an object property with a `description`. Do not use unsupported plain JSON Schema keys such as `const` or `additionalProperties` in the ElevenLabs tool schema. The endpoint accepts either `tool_name` or `name` as the tool identifier, plus a payload object such as `parameters`, `args`, or `input`.
+Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, define visible body parameters under `properties`: `tool` as a required string property with `constant_value` set to the tool name, and `payload` as a required string property with a description telling the agent to send a JSON string containing the full structured payload for that tool. This is ElevenLabs's parameter-object schema, not arbitrary JSON Schema. Do not use unsupported plain JSON Schema keys such as `const` or `additionalProperties` in the ElevenLabs tool schema. The endpoint also accepts older aliases such as `tool_name`, `name`, `parameters`, `args`, and `input` so existing agent configs keep working.
 
 Successful response shape:
 
@@ -80,15 +80,8 @@ Create the lockout job spec after intake confirms user authorization and reminds
 
 ```json
 {
-  "tool_name": "create_job_spec",
-  "parameters": {
-    "lockoutType": "home lockout",
-    "lockType": "deadbolt",
-    "urgency": "as soon as possible",
-    "maxBudgetUsd": 150,
-    "authorizationConfirmed": true,
-    "proofOfResidenceReminderGiven": true
-  }
+  "tool": "create_job_spec",
+  "payload": "{\"caseType\":\"home lockout\",\"urgency\":\"as soon as possible\",\"propertyType\":\"residential\",\"doorType\":\"front door\",\"lockType\":\"deadbolt\",\"doorOpen\":false,\"keyStolen\":false,\"brokenKeyVisible\":false,\"needRekey\":false,\"newKeysNeeded\":2,\"idealPrice\":120,\"maxPrice\":150,\"authorizationConfirmed\":true,\"locationCity\":\"Example City\",\"locationZip\":\"00000\"}"
 }
 ```
 
@@ -96,18 +89,8 @@ Save a structured locksmith quote from a vendor call:
 
 ```json
 {
-  "tool_name": "save_quote",
-  "parameters": {
-    "vendorLabel": "Vendor C",
-    "basePriceUsd": 95,
-    "serviceCallUsd": 50,
-    "totalQuotedUsd": 165,
-    "arrivalWindowMinutes": 35,
-    "transcriptEvidence": [
-      "The total should be 165 if it is a standard deadbolt.",
-      "There is a 50 dollar service call included."
-    ]
-  }
+  "tool": "save_quote",
+  "payload": "{\"vendorName\":\"Vendor C\",\"phone\":null,\"etaMinutes\":35,\"dispatchFee\":50,\"laborFee\":95,\"partsFee\":0,\"afterHoursFee\":0,\"taxesAndOther\":20,\"totalEstimate\":165,\"isTotalAllIn\":true,\"drillingPolicy\":\"Only if non-destructive entry fails and user approves\",\"idRequired\":true,\"oldKeyDisabled\":true,\"keysIncluded\":2,\"warranty\":\"30 days\",\"quoteConfidence\":\"high\",\"redFlags\":[],\"transcriptEvidence\":[\"The total should be 165 if it is a standard deadbolt.\"],\"transcript\":\"Example transcript excerpt.\"}"
 }
 ```
 
@@ -115,13 +98,8 @@ Analyze VoiceTrust as an uncertainty signal, not as lie detection:
 
 ```json
 {
-  "tool_name": "analyze_voice_trust",
-  "parameters": {
-    "vendorLabel": "Vendor A",
-    "question": "Are there any hidden fees or technician-decided charges?",
-    "answer": "Uh, the technician will decide when they get there.",
-    "signals": ["pause_before_fee_answer", "filler_words", "technician_decides_language"]
-  }
+  "tool": "analyze_voice_trust",
+  "payload": "{\"questionType\":\"hidden_fees\",\"vendorText\":\"Uh, the technician will decide when they get there.\",\"pauseMs\":900,\"fillerWords\":[\"uh\"],\"evasivePhrases\":[\"technician will decide\"],\"speechRateChangePct\":-15,\"pitchVariance\":null,\"volumeVariance\":null}"
 }
 ```
 
@@ -129,12 +107,8 @@ Classify the vendor tone for ranking context:
 
 ```json
 {
-  "tool_name": "classify_vendor_tone",
-  "parameters": {
-    "vendorLabel": "Vendor B",
-    "transcriptExcerpt": "I can give you the exact lockout price before dispatch.",
-    "observedTone": "clear and direct"
-  }
+  "tool": "classify_vendor_tone",
+  "payload": "{\"vendorLatestMessage\":\"I can give you the exact lockout price before dispatch.\",\"conversationContext\":\"Vendor B answered hidden fee and drilling policy questions clearly.\"}"
 }
 ```
 
@@ -142,16 +116,8 @@ Track negotiation updates using only stored competing quotes as leverage:
 
 ```json
 {
-  "tool_name": "update_negotiation",
-  "parameters": {
-    "vendorLabel": "Vendor C",
-    "originalTotalUsd": 165,
-    "negotiatedTotalUsd": 145,
-    "leverageQuoteLabels": ["Vendor B"],
-    "transcriptEvidence": [
-      "I can match 145 if you can book now."
-    ]
-  }
+  "tool": "update_negotiation",
+  "payload": "{\"vendorName\":\"Vendor C\",\"beforePrice\":165,\"afterPrice\":145,\"termsChanged\":\"Matched competitor price for booking now\",\"leverageUsed\":[\"Stored Vendor B quote\"],\"transcriptEvidence\":[\"I can match 145 if you can book now.\"],\"priceOrTermsChanged\":true}"
 }
 ```
 
