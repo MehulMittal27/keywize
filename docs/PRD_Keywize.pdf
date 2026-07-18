@@ -1,0 +1,649 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R 15 0 R] /Count 6 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 2078 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+(Product Requirements Document: Keywize) Tj
+T*
+() Tj
+T*
+(#1. Product name) Tj
+T*
+(Keywize) Tj
+T*
+() Tj
+T*
+(#2. One-line pitch) Tj
+T*
+(Locked out? Call once. Keywize calls locksmiths, compares real all-in prices, negotiates) Tj
+T*
+(under your budget, and protects you from bait-and-switch scams.) Tj
+T*
+() Tj
+T*
+(#3. Problem) Tj
+T*
+(People who are locked out or have lost keys are stressed and usually call the first) Tj
+T*
+(locksmith they find. Locksmith pricing is often unclear. A phone quote may start at $39,) Tj
+T*
+(but the final bill can become $250 or more after dispatch fees, labor, drilling, parts,) Tj
+T*
+(after-hours fees, and tax. Customers do not know which services they actually need, and) Tj
+T*
+(they do not know which questions to ask.) Tj
+T*
+() Tj
+T*
+(#4. Target users) Tj
+T*
+(- Renters locked out of an apartment or room) Tj
+T*
+(- Students in dorms or shared housing) Tj
+T*
+(- Roommates who need new keys) Tj
+T*
+(- Tenants whose keys were stolen) Tj
+T*
+(- People with a broken key stuck inside the lock) Tj
+T*
+() Tj
+T*
+(#5. Supported MVP cases) Tj
+T*
+(1. Room door key lost) Tj
+T*
+(2. Key inside room and locked out) Tj
+T*
+(3. Main apartment key lost) Tj
+T*
+(4. Key stolen) Tj
+T*
+(5. Broken key inside lock) Tj
+T*
+() Tj
+T*
+(#6. Core promise) Tj
+T*
+(Keywize will:) Tj
+T*
+(- Understand the user's lock problem through voice or web intake) Tj
+T*
+(- Ask for max budget and urgency) Tj
+T*
+(- Confirm the user is authorized to request locksmith service) Tj
+T*
+(- Call at least 3 locksmiths or simulated locksmiths) Tj
+T*
+(- Ask protective anti-scam questions) Tj
+T*
+(- Capture itemized quotes in a structured format) Tj
+T*
+(- Use real competing quotes to negotiate price or terms) Tj
+T*
+(- Rank vendors by price, ETA, risk, and evidence) Tj
+T*
+(- Recommend the safest best-value option) Tj
+T*
+() Tj
+T*
+(#7. Differentiation) Tj
+T*
+(This is not a generic quote comparison tool. It is an emergency anti-scam negotiator.) Tj
+T*
+() Tj
+T*
+(Unique features:) Tj
+T*
+(- Bait-and-switch risk score) Tj
+T*
+(- No-drill-first verification) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 2019 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+(- Max budget guardrail) Tj
+T*
+(- Authorization and proof-of-residence reminder) Tj
+T*
+(- Transcript-backed recommendation) Tj
+T*
+(- Terms negotiation, not only price negotiation) Tj
+T*
+(- Phone-first experience through Twilio, so the user can call without internet) Tj
+T*
+() Tj
+T*
+(#8. User journey) Tj
+T*
+(##Step 1: User starts) Tj
+T*
+(User either calls the Twilio number or opens the website.) Tj
+T*
+() Tj
+T*
+(##Step 2: Intake) Tj
+T*
+(The agent asks:) Tj
+T*
+(- What happened?) Tj
+T*
+(- Are you locked out right now?) Tj
+T*
+(- Is this a room door or main apartment door?) Tj
+T*
+(- Is the key lost, stolen, inside, or broken?) Tj
+T*
+(- What kind of lock is it?) Tj
+T*
+(- What is your ideal price?) Tj
+T*
+(- What is your maximum all-in price before approval is needed?) Tj
+T*
+(- Can you show proof that you live there or are authorized?) Tj
+T*
+() Tj
+T*
+(##Step 3: Job spec creation) Tj
+T*
+(The system creates a single structured job spec and reuses it in every call.) Tj
+T*
+() Tj
+T*
+(##Step 4: Vendor calls) Tj
+T*
+(The agent calls 3 vendors or 3 simulated vendors. It asks for all-in pricing, itemized) Tj
+T*
+(fees, ETA, drilling policy, ID requirement, warranty, and included keys.) Tj
+T*
+() Tj
+T*
+(##Step 5: Negotiation) Tj
+T*
+(After receiving quotes, the agent uses the best real quote as leverage. Example: "I have) Tj
+T*
+(another confirmed quote at $130 all-in with no-drill first. Can you match that or) Tj
+T*
+(include two keys?") Tj
+T*
+() Tj
+T*
+(##Step 6: Report) Tj
+T*
+(The user sees or receives a ranked recommendation with transcript evidence.) Tj
+T*
+() Tj
+T*
+(#9. Required product screens) Tj
+T*
+(##Landing page) Tj
+T*
+(Purpose: explain product and start user flow.) Tj
+T*
+() Tj
+T*
+(Must include:) Tj
+T*
+(- Headline: Locked out? Do not get scammed.) Tj
+T*
+(- CTA: Call Keywize) Tj
+T*
+(- CTA: Start online intake) Tj
+T*
+(- Benefits: all-in price, no-drill first, budget guardrail, transcript evidence) Tj
+T*
+() Tj
+T*
+(##Intake page) Tj
+T*
+(Purpose: collect the job spec.) Tj
+T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 1273 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+() Tj
+T*
+(Must include:) Tj
+T*
+(- Case type cards) Tj
+T*
+(- Location) Tj
+T*
+(- Door type) Tj
+T*
+(- Lock type) Tj
+T*
+(- Urgency) Tj
+T*
+(- Ideal price) Tj
+T*
+(- Max price) Tj
+T*
+(- Budget flexibility) Tj
+T*
+(- Authorization confirmation) Tj
+T*
+() Tj
+T*
+(##Live mission dashboard) Tj
+T*
+(Purpose: show progress while calls happen.) Tj
+T*
+() Tj
+T*
+(Must include:) Tj
+T*
+(- Intake complete) Tj
+T*
+(- Calling Vendor A) Tj
+T*
+(- Calling Vendor B) Tj
+T*
+(- Calling Vendor C) Tj
+T*
+(- Negotiating) Tj
+T*
+(- Recommendation ready) Tj
+T*
+(- Job spec card) Tj
+T*
+(- Live call log) Tj
+T*
+() Tj
+T*
+(##Final report page) Tj
+T*
+(Purpose: show ranked quotes and recommendation.) Tj
+T*
+() Tj
+T*
+(Must include:) Tj
+T*
+(- Recommended vendor) Tj
+T*
+(- Ranked table) Tj
+T*
+(- Total price) Tj
+T*
+(- ETA) Tj
+T*
+(- Risk level) Tj
+T*
+(- Red flags) Tj
+T*
+(- Transcript snippets) Tj
+T*
+(- Approve, call me, negotiate again buttons) Tj
+T*
+() Tj
+T*
+(##Demo control panel) Tj
+T*
+(Purpose: make hackathon demo reliable.) Tj
+T*
+() Tj
+T*
+(Must include:) Tj
+T*
+(- Start demo case) Tj
+T*
+(- Simulate Vendor A: bait-and-switch) Tj
+T*
+(- Simulate Vendor B: honest local) Tj
+T*
+(- Simulate Vendor C: premium fast) Tj
+T*
+(- Trigger negotiation) Tj
+T*
+(- Generate final report) Tj
+T*
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 1591 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+() Tj
+T*
+(#10. Structured data schemas) Tj
+T*
+(##Job spec) Tj
+T*
+({) Tj
+T*
+(  "case_type": "broken_key_inside_lock",) Tj
+T*
+(  "urgency": "locked_out_now",) Tj
+T*
+(  "property_type": "apartment",) Tj
+T*
+(  "door_type": "main_entry",) Tj
+T*
+(  "lock_type": "deadbolt",) Tj
+T*
+(  "door_open": false,) Tj
+T*
+(  "key_stolen": false,) Tj
+T*
+(  "broken_key_visible": true,) Tj
+T*
+(  "need_rekey": false,) Tj
+T*
+(  "new_keys_needed": 2,) Tj
+T*
+(  "ideal_price": 100,) Tj
+T*
+(  "max_price": 150,) Tj
+T*
+(  "budget_flexibility": "strict",) Tj
+T*
+(  "approval_required_above_budget": true,) Tj
+T*
+(  "authorization_confirmed": true,) Tj
+T*
+(  "location_city": "San Francisco",) Tj
+T*
+(  "location_zip": "94103") Tj
+T*
+(}) Tj
+T*
+() Tj
+T*
+(##Quote) Tj
+T*
+({) Tj
+T*
+(  "vendor_name": "SafeLock Local",) Tj
+T*
+(  "phone": "+14155550123",) Tj
+T*
+(  "eta_minutes": 25,) Tj
+T*
+(  "dispatch_fee": 25,) Tj
+T*
+(  "labor_fee": 100,) Tj
+T*
+(  "parts_fee": 0,) Tj
+T*
+(  "after_hours_fee": 20,) Tj
+T*
+(  "taxes_and_other": 0,) Tj
+T*
+(  "total_estimate": 145,) Tj
+T*
+(  "is_total_all_in": true,) Tj
+T*
+(  "drilling_policy": "no drilling unless lock is damaged",) Tj
+T*
+(  "id_required": true,) Tj
+T*
+(  "old_key_disabled": null,) Tj
+T*
+(  "keys_included": 0,) Tj
+T*
+(  "warranty": "30 days",) Tj
+T*
+(  "quote_confidence": "firm_before_arrival",) Tj
+T*
+(  "red_flags": [],) Tj
+T*
+(  "risk_score": 18,) Tj
+T*
+(  "risk_level": "Low",) Tj
+T*
+(  "transcript_evidence": ["$145 total", "no drilling unless damaged", "ETA 25 minutes"]) Tj
+T*
+(}) Tj
+T*
+() Tj
+T*
+(#11. Risk scoring rules) Tj
+T*
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 2222 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+(Start with 0 risk points. Add points:) Tj
+T*
+(- Says "starts at" without giving total: +35) Tj
+T*
+(- Refuses itemized pricing: +25) Tj
+T*
+(- Refuses to confirm dispatch fee: +20) Tj
+T*
+(- Mentions drilling before diagnosis: +25) Tj
+T*
+(- Refuses company name or invoice name: +20) Tj
+T*
+(- Does not require proof of residence: +15) Tj
+T*
+(- Quote is more than 40 percent below median: +20) Tj
+T*
+(- Quote is more than 50 percent above median: +10) Tj
+T*
+(- Cannot provide ETA: +10) Tj
+T*
+() Tj
+T*
+(Risk levels:) Tj
+T*
+(- 0 to 24: Low) Tj
+T*
+(- 25 to 59: Medium) Tj
+T*
+(- 60 to 100: High) Tj
+T*
+() Tj
+T*
+(#12. Agent behavior rules) Tj
+T*
+(The agent must:) Tj
+T*
+(- Never invent a competing quote) Tj
+T*
+(- Never lie about the job) Tj
+T*
+(- Never claim the user owns the property unless the user confirmed authorization) Tj
+T*
+(- Disclose it is an AI if asked) Tj
+T*
+(- Ask for total all-in price before sharing the user's max budget) Tj
+T*
+(- End every call with a structured outcome) Tj
+T*
+(- Push for non-destructive opening first) Tj
+T*
+(- Ask for confirmation before accepting anything above the user's max price) Tj
+T*
+() Tj
+T*
+(#13. Anti-scam call script) Tj
+T*
+(The caller agent should ask:) Tj
+T*
+(1. Can you give the total out-the-door estimate including dispatch, labor, parts, after-) Tj
+T*
+(  hours, tax, and any other fees?) Tj
+T*
+(2. Is the dispatch fee included in that total?) Tj
+T*
+(3. Will you attempt non-destructive entry before drilling?) Tj
+T*
+(4. Under what condition would drilling be required?) Tj
+T*
+(5. Will the technician call before starting if the price changes?) Tj
+T*
+(6. What is the ETA?) Tj
+T*
+(7. Do you require ID or proof of residence before opening?) Tj
+T*
+(8. What company name will appear on the invoice?) Tj
+T*
+(9. Are any keys included?) Tj
+T*
+(10. Is there a warranty?) Tj
+T*
+() Tj
+T*
+(#14. MVP success criteria) Tj
+T*
+(- User can complete web intake) Tj
+T*
+(- User can enter ideal price and max price) Tj
+T*
+(- System creates a structured job spec) Tj
+T*
+(- Demo calls or simulated calls produce 3 structured quotes) Tj
+T*
+(- At least one vendor changes price or terms because of another real quote) Tj
+T*
+(- Final report ranks all vendors) Tj
+T*
+ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 12 0 R >>
+endobj
+14 0 obj
+<< /Length 1051 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+50 760 Td
+(- Final report cites transcript evidence) Tj
+T*
+(- Risk score flags bait-and-switch behavior) Tj
+T*
+(- Twilio inbound call path is at least stubbed or connected if time allows) Tj
+T*
+() Tj
+T*
+(#15. Hackathon demo story) Tj
+T*
+(Demo case: broken key inside main apartment deadbolt, user locked out, max budget $150.) Tj
+T*
+() Tj
+T*
+(Vendor A: Cheap bait-and-switch) Tj
+T*
+(- Says starts at $39) Tj
+T*
+(- Refuses all-in total) Tj
+T*
+(- No clear drilling policy) Tj
+T*
+(- Risk: High) Tj
+T*
+() Tj
+T*
+(Vendor B: Honest local) Tj
+T*
+(- $130 all-in) Tj
+T*
+(- 30 minute ETA) Tj
+T*
+(- No-drill first) Tj
+T*
+(- ID required) Tj
+T*
+(- Risk: Low) Tj
+T*
+() Tj
+T*
+(Vendor C: Premium fast) Tj
+T*
+(- Starts at $165) Tj
+T*
+(- 15 minute ETA) Tj
+T*
+(- After negotiation, drops to $145 or includes 2 keys) Tj
+T*
+(- Risk: Low or Medium) Tj
+T*
+() Tj
+T*
+(Winning moment:) Tj
+T*
+(The agent says: "I have another confirmed quote at $130 all-in with no-drill first. You) Tj
+T*
+(are faster. Can you get to $145 all-in or include two keys?") Tj
+T*
+ET
+endstream
+endobj
+15 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 14 0 R >>
+endobj
+xref
+0 16
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000148 00000 n 
+0000000218 00000 n 
+0000002348 00000 n 
+0000002474 00000 n 
+0000004545 00000 n 
+0000004671 00000 n 
+0000005996 00000 n 
+0000006122 00000 n 
+0000007766 00000 n 
+0000007894 00000 n 
+0000010169 00000 n 
+0000010297 00000 n 
+0000011401 00000 n 
+trailer
+<< /Size 16 /Root 1 0 R >>
+startxref
+11529
+%%EOF
