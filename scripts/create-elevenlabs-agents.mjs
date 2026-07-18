@@ -180,25 +180,28 @@ function buildPayloadDescription(toolName) {
   const fields = TOOL_PAYLOAD_FIELDS[toolName];
 
   if (!fields) {
-    return "JSON.stringify the complete structured payload for this Keywize tool.";
+    return "Send a JSON string containing the full structured payload for this Keywize tool.";
   }
 
   return [
-    "JSON.stringify a single object with every available value for this Keywize tool.",
-    `Include these fields: ${fields.join(", ")}.`,
+    "Send a JSON string containing one object with the full structured payload for this Keywize tool.",
+    `The JSON string must include these fields when available: ${fields.join(", ")}.`,
     "Use null for unknown optional values instead of omitting relevant fields.",
   ].join(" ");
 }
 
 function buildRequestBodySchema(toolName) {
-  // ElevenLabs expects webhook body parameter schemas at:
-  // tool.api_schema.request_body_schema. This is a constrained ElevenLabs
-  // schema, not full JSON Schema. Each body property needs exactly one value
-  // source, for example constant_value for fixed values or description for
-  // model-filled values. Keep this builder isolated so it is easy to update if
-  // ElevenLabs changes the webhook schema shape again.
+  // ElevenLabs renders webhook body parameters from:
+  // tool.api_schema.request_body_schema.properties.
+  // This shape is ElevenLabs's parameter-object schema, not arbitrary JSON
+  // Schema. Keep direct body parameters as literal schema nodes. Each literal
+  // node needs exactly one value source: description for LLM-filled values,
+  // constant_value for fixed values, dynamic_variable, is_system_provided, or
+  // is_omitted. If ElevenLabs changes this API, update this builder and the
+  // validator below before running real agent creation.
   return {
     type: "object",
+    description: "JSON body sent by the ElevenLabs webhook tool to Keywize.",
     properties: {
       tool: {
         type: "string",
@@ -224,6 +227,7 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
       request_headers: {
         "Content-Type": "application/json",
       },
+      content_type: "application/json",
       request_body_schema: buildRequestBodySchema(toolName),
     },
   };
@@ -241,6 +245,7 @@ function validateElevenLabsToolSchema(payloads) {
       }
 
       assertNoUnsupportedSchemaKeys(schema, `${name}.${tool.name}.request_body_schema`);
+      assertToolBodySchemaIsVisible(schema, `${name}.${tool.name}.request_body_schema`);
       assertToolBodyPropertySources(schema, `${name}.${tool.name}.request_body_schema`);
     }
   }
@@ -260,11 +265,35 @@ function assertNoUnsupportedSchemaKeys(value, pathLabel) {
   }
 }
 
-function assertToolBodyPropertySources(schema, pathLabel) {
+function assertToolBodySchemaIsVisible(schema, pathLabel) {
+  const propertyNames = Object.keys(schema.properties ?? {});
+
   if (schema.type !== "object" || !schema.properties || typeof schema.properties !== "object") {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} must be an object with properties.`);
   }
 
+  if (propertyNames.join(",") !== "tool,payload") {
+    throw new Error(
+      `ElevenLabs tool schema at ${pathLabel} must expose exactly these body parameters in order: tool, payload. Found: ${propertyNames.join(", ")}.`,
+    );
+  }
+
+  for (const propertyName of propertyNames) {
+    const propertySchema = schema.properties[propertyName];
+
+    if (!propertySchema || propertySchema.type !== "string") {
+      throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.${propertyName} must be a string literal schema node.`);
+    }
+  }
+
+  const missingRequired = ["tool", "payload"].filter((propertyName) => !schema.required?.includes(propertyName));
+
+  if (missingRequired.length > 0) {
+    throw new Error(`ElevenLabs tool schema at ${pathLabel} is missing required body parameter(s): ${missingRequired.join(", ")}.`);
+  }
+}
+
+function assertToolBodyPropertySources(schema, pathLabel) {
   for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
     const sourceKeys = [
       "description",
@@ -415,14 +444,19 @@ async function main() {
   if (dryRun) {
     const toolSummary = payloads
       .map(({ name, payload }) => {
-        const toolNames = payload.conversation_config.agent.prompt.tools.map((tool) => tool.name).join(", ");
-        return `${name}: ${toolNames}`;
+        const toolDetails = payload.conversation_config.agent.prompt.tools
+          .map((tool) => {
+            const bodyParameterNames = Object.keys(tool.api_schema.request_body_schema.properties).join(", ");
+            return `${tool.name} [body: ${bodyParameterNames}]`;
+          })
+          .join(", ");
+        return `${name}: ${toolDetails}`;
       })
       .join("\n");
 
     console.log(`Dry run validated ${payloads.length} ElevenLabs agent payloads.`);
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
-    console.log("Tool schema sanity check passed: no const or additionalProperties keys; tool uses constant_value and payload is a described JSON string.");
+    console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool and payload.");
     console.log(`Tool split:\n${toolSummary}`);
     console.log("No agents were created and the env file was not updated.");
     return;

@@ -16,6 +16,9 @@ type SupportedToolName =
   | "update_negotiation";
 
 type ElevenLabsToolRequest = {
+  // The current agent creation script configures ElevenLabs webhook tools with
+  // visible request_body_schema properties named tool and payload. Legacy
+  // aliases remain accepted so older agent configs keep working.
   tool?: unknown;
   payload?: unknown;
   tool_name?: unknown;
@@ -145,7 +148,7 @@ export async function POST(request: Request) {
 
   console.log("ElevenLabs tool call received", {
     toolName,
-    payload: parsedPayload.payload,
+    payloadType: typeof parsedPayload.payload,
   });
 
   return NextResponse.json({
