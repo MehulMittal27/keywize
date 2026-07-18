@@ -16,6 +16,8 @@ type SupportedToolName =
   | "update_negotiation";
 
 type ElevenLabsToolRequest = {
+  tool?: unknown;
+  payload?: unknown;
   tool_name?: unknown;
   name?: unknown;
   toolCall?: {
@@ -26,11 +28,62 @@ type ElevenLabsToolRequest = {
   input?: unknown;
 };
 
+type ParsedPayloadResult =
+  | {
+      ok: true;
+      payload: unknown;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 function getToolName(body: ElevenLabsToolRequest): string | undefined {
-  const candidates = [body.tool_name, body.name, body.toolCall?.name];
+  const candidates = [body.tool, body.tool_name, body.name, body.toolCall?.name];
   const toolName = candidates.find((candidate): candidate is string => typeof candidate === "string");
 
   return toolName;
+}
+
+function getRawPayload(body: ElevenLabsToolRequest): unknown {
+  if (Object.hasOwn(body, "payload")) {
+    return body.payload;
+  }
+
+  if (Object.hasOwn(body, "parameters")) {
+    return body.parameters;
+  }
+
+  if (Object.hasOwn(body, "args")) {
+    return body.args;
+  }
+
+  if (Object.hasOwn(body, "input")) {
+    return body.input;
+  }
+
+  return {};
+}
+
+function parseToolPayload(rawPayload: unknown): ParsedPayloadResult {
+  if (typeof rawPayload !== "string") {
+    return {
+      ok: true,
+      payload: rawPayload,
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      payload: JSON.parse(rawPayload),
+    };
+  } catch {
+    return {
+      ok: false,
+      error: "Invalid JSON in payload string.",
+    };
+  }
 }
 
 function methodNotAllowed() {
@@ -78,17 +131,30 @@ export async function POST(request: Request) {
     );
   }
 
+  const parsedPayload = parseToolPayload(getRawPayload(body));
+
+  if (!parsedPayload.ok) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: parsedPayload.error,
+      },
+      { status: 400 },
+    );
+  }
+
   console.log("ElevenLabs tool call received", {
     toolName,
-    body,
+    payload: parsedPayload.payload,
   });
 
   return NextResponse.json({
     success: true,
     toolName,
-    message: "Tool call accepted. No data was persisted and no external services were called.",
+    message: "Tool call accepted. Payload was parsed; no data was persisted and no external services were called.",
     result: {
       status: "accepted",
+      payload: parsedPayload.payload,
     },
   });
 }

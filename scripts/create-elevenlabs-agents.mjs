@@ -43,6 +43,67 @@ const TOOL_DESCRIPTIONS = {
   update_negotiation: "Track negotiated price or terms using only stored competing quotes as leverage.",
 };
 
+const TOOL_PAYLOAD_FIELDS = {
+  create_job_spec: [
+    "caseType",
+    "urgency",
+    "propertyType",
+    "doorType",
+    "lockType",
+    "doorOpen",
+    "keyStolen",
+    "brokenKeyVisible",
+    "needRekey",
+    "newKeysNeeded",
+    "idealPrice",
+    "maxPrice",
+    "authorizationConfirmed",
+    "locationCity",
+    "locationZip",
+  ],
+  save_quote: [
+    "vendorName",
+    "phone",
+    "etaMinutes",
+    "dispatchFee",
+    "laborFee",
+    "partsFee",
+    "afterHoursFee",
+    "taxesAndOther",
+    "totalEstimate",
+    "isTotalAllIn",
+    "drillingPolicy",
+    "idRequired",
+    "oldKeyDisabled",
+    "keysIncluded",
+    "warranty",
+    "quoteConfidence",
+    "redFlags",
+    "transcriptEvidence",
+    "transcript",
+  ],
+  analyze_voice_trust: [
+    "questionType",
+    "vendorText",
+    "pauseMs",
+    "fillerWords",
+    "evasivePhrases",
+    "speechRateChangePct",
+    "pitchVariance",
+    "volumeVariance",
+  ],
+  classify_vendor_tone: ["vendorLatestMessage", "conversationContext"],
+  update_negotiation: [
+    "vendorName",
+    "beforePrice",
+    "afterPrice",
+    "termsChanged",
+    "leverageUsed",
+    "transcriptEvidence",
+    "priceOrTermsChanged",
+  ],
+};
+
 function parseDotEnv(contents) {
   const env = new Map();
 
@@ -115,12 +176,44 @@ function ensureTrailingSlash(url) {
   return url.endsWith("/") ? url : `${url}/`;
 }
 
+function buildPayloadDescription(toolName) {
+  const fields = TOOL_PAYLOAD_FIELDS[toolName];
+
+  if (!fields) {
+    return "JSON.stringify the complete structured payload for this Keywize tool.";
+  }
+
+  return [
+    "JSON.stringify a single object with every available value for this Keywize tool.",
+    `Include these fields: ${fields.join(", ")}.`,
+    "Use null for unknown optional values instead of omitting relevant fields.",
+  ].join(" ");
+}
+
+function buildRequestBodySchema(toolName) {
+  // ElevenLabs expects webhook body parameter schemas at:
+  // tool.api_schema.request_body_schema. This is a constrained ElevenLabs
+  // schema, not full JSON Schema. Each body property needs exactly one value
+  // source, for example constant_value for fixed values or description for
+  // model-filled values. Keep this builder isolated so it is easy to update if
+  // ElevenLabs changes the webhook schema shape again.
+  return {
+    type: "object",
+    properties: {
+      tool: {
+        type: "string",
+        constant_value: toolName,
+      },
+      payload: {
+        type: "string",
+        description: buildPayloadDescription(toolName),
+      },
+    },
+    required: ["tool", "payload"],
+  };
+}
+
 function buildWebhookToolConfig(toolName, webhookUrl) {
-  // ElevenLabs webhook request_body_schema uses its own constrained schema
-  // shape, not full JSON Schema. Properties must say how they are populated
-  // with description, dynamic_variable, is_system_provided, constant_value, or
-  // is_omitted, and unsupported JSON Schema keys such as const and
-  // additionalProperties are rejected.
   return {
     type: "webhook",
     name: toolName,
@@ -131,20 +224,7 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
       request_headers: {
         "Content-Type": "application/json",
       },
-      request_body_schema: {
-        type: "object",
-        properties: {
-          tool_name: {
-            type: "string",
-            constant_value: toolName,
-          },
-          parameters: {
-            type: "object",
-            description: "Tool-specific JSON parameters collected by the agent.",
-          },
-        },
-        required: ["tool_name", "parameters"],
-      },
+      request_body_schema: buildRequestBodySchema(toolName),
     },
   };
 }
@@ -342,9 +422,9 @@ async function main() {
 
     console.log(`Dry run validated ${payloads.length} ElevenLabs agent payloads.`);
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
-    console.log("Tool schema sanity check passed: no const or additionalProperties keys; tool_name uses constant_value.");
+    console.log("Tool schema sanity check passed: no const or additionalProperties keys; tool uses constant_value and payload is a described JSON string.");
     console.log(`Tool split:\n${toolSummary}`);
-    console.log("No agents were created and .env.local was not updated.");
+    console.log("No agents were created and the env file was not updated.");
     return;
   }
 
