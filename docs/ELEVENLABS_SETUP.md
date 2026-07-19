@@ -115,8 +115,18 @@ When tools are defined inline in `POST /v1/convai/agents/create`, ElevenLabs val
 
 ```json
 {
-  "path_params_schema": {},
-  "query_params_schema": {},
+  "path_params_schema": {
+    "type": "object",
+    "description": "No path parameters are used by this webhook tool.",
+    "properties": {},
+    "required": []
+  },
+  "query_params_schema": {
+    "type": "object",
+    "description": "No query parameters are used by this webhook tool.",
+    "properties": {},
+    "required": []
+  },
   "request_headers": {
     "Content-Type": "application/json"
   },
@@ -147,7 +157,7 @@ When tools are defined inline in `POST /v1/convai/agents/create`, ElevenLabs val
 }
 ```
 
-For inline agent creation, keep `request_headers`, `query_params_schema`, and every `properties` value as dictionaries or objects, and keep `required` as string arrays. Do not include standalone editor fields such as `id`, boolean `required` values on schema nodes, or array-style `properties`; those cause `422` validation errors on the agent creation endpoint.
+For inline agent creation, keep `request_headers`, `path_params_schema.properties`, `query_params_schema.properties`, and every request-body `properties` value as dictionaries or objects, and keep `required` as string arrays. Even when no path or query parameters are used, send object schemas with empty `properties` dictionaries instead of bare `{}`. Do not include standalone editor fields such as `id`, boolean `required` values on schema nodes, or array-style `properties`; those cause `422` validation errors on the agent creation endpoint.
 
 #### Standalone tool PATCH/editor schema
 
