@@ -31,6 +31,8 @@ POST https://api.elevenlabs.io/v1/convai/agents/create
 
 Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
 
+The create script is for creating a fresh set of agents. It does not update existing agent or standalone tool configurations, so rerunning it after agents already exist can create duplicates. After changing `NEXT_PUBLIC_APP_URL` for already-created agents, update each existing webhook tool URL in the ElevenLabs dashboard or with the standalone tool PATCH endpoint instead of rerunning the create script unless you intentionally want new agent IDs.
+
 The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block and configures platform guardrails under `platform_settings.guardrails`. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
 
 ```txt
@@ -94,62 +96,68 @@ Configure each ElevenLabs agent tool as a JSON webhook that sends a `POST` reque
 https://<keywize-host>/api/elevenlabs/tools
 ```
 
-Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, define exactly two visible top-level body parameters in a `properties` array: `tool_name` as a required string property with `id: "tool_name"`, `description`, and `constant_value` set to the exact tool name, and `parameters` as a required object property with `id: "parameters"` and description `Tool-specific JSON parameters collected by the agent.`. Put each tool's structured primitive fields directly inside the object's own `parameters.properties` array as property objects with `id`, `type`, `description`, and a boolean `required`, for example the `parameters` object contains `{ "id": "caseType", "type": "string", ... }`. Do not place those child fields at the top level or under a `schema` or `value_schema` wrapper. This is the captain-provided working ElevenLabs ConvAI tool PATCH shape, not the older plain JSON Schema properties map. The endpoint also accepts older `{ tool, payload }`, `{ tool, params }`, `name`, `args`, and `input` aliases so existing agent configs keep working.
-
-Every generated webhook tool body uses this shape:
+Use `Content-Type: application/json`. The Keywize endpoint expects the webhook body to contain the exact tool name and nested parameters:
 
 ```json
 {
-  "path_params_schema": {},
-  "query_params_schema": [],
-  "request_headers": [
-    {
-      "name": "Content-Type",
-      "value": "application/json"
-    }
-  ],
-  "content_type": "application/json",
-  "request_body_schema": {
-    "id": "request_body",
-    "type": "object",
-    "description": "JSON body for the Keywize EXACT_TOOL_NAME webhook tool.",
-    "required": true,
-    "properties": [
-      {
-        "id": "tool_name",
-        "type": "string",
-        "description": "Exact Keywize tool name to execute.",
-        "constant_value": "EXACT_TOOL_NAME",
-        "required": true
-      },
-      {
-        "id": "parameters",
-        "type": "object",
-        "description": "Tool-specific JSON parameters collected by the agent.",
-        "required": true,
-        "properties": [
-          {
-            "id": "fieldName",
-            "type": "string",
-            "description": "Required. Clear LLM extraction instruction.",
-            "required": true
-          }
-        ]
-      }
-    ]
+  "tool_name": "EXACT_TOOL_NAME",
+  "parameters": {
+    "fieldName": "extracted value"
   }
 }
 ```
 
-For each extracted field in `parameters.properties`, use `description` so the agent extracts the value. The fixed `tool_name` field uses `constant_value` with the exact tool name. To manually inspect this in ElevenLabs, open each agent tool, expand the webhook body schema, confirm the top level shows `tool_name` and `parameters`, then expand `parameters.properties` and confirm the expected tool-specific fields are visible there.
+The endpoint also accepts older `{ tool, payload }`, `{ tool, params }`, `name`, `args`, and `input` aliases so existing agent configs keep working.
 
-If an existing tool needs manual repair, PATCH the tool-specific endpoint with the full webhook tool payload using the tool ID from that ElevenLabs dashboard URL or API response:
+#### Inline agent-create schema
+
+When tools are defined inline in `POST /v1/convai/agents/create`, ElevenLabs validates a dictionary-style, JSON-schema-like shape. The create script generates this shape:
+
+```json
+{
+  "path_params_schema": {},
+  "query_params_schema": {},
+  "request_headers": {
+    "Content-Type": "application/json"
+  },
+  "content_type": "application/json",
+  "request_body_schema": {
+    "type": "object",
+    "description": "JSON body for the Keywize EXACT_TOOL_NAME webhook tool.",
+    "properties": {
+      "tool_name": {
+        "type": "string",
+        "description": "Exact Keywize tool name to execute.",
+        "enum": ["EXACT_TOOL_NAME"]
+      },
+      "parameters": {
+        "type": "object",
+        "description": "Tool-specific JSON parameters collected by the agent.",
+        "properties": {
+          "fieldName": {
+            "type": "string",
+            "description": "Required. Clear LLM extraction instruction."
+          }
+        },
+        "required": ["fieldName"]
+      }
+    },
+    "required": ["tool_name", "parameters"]
+  }
+}
+```
+
+For inline agent creation, keep `request_headers`, `query_params_schema`, and every `properties` value as dictionaries or objects, and keep `required` as string arrays. Do not include standalone editor fields such as `id`, boolean `required` values on schema nodes, or array-style `properties`; those cause `422` validation errors on the agent creation endpoint.
+
+#### Standalone tool PATCH/editor schema
+
+The standalone tool PATCH endpoint and dashboard editor can use a different payload shape from inline agent creation. If an existing tool needs manual repair, PATCH the tool-specific endpoint with the full webhook tool payload using the tool ID from that ElevenLabs dashboard URL or API response:
 
 ```txt
 PATCH https://api.elevenlabs.io/v1/convai/tools/<tool_id>
 ```
 
-Use the same `api_schema` shape shown above and keep the Keywize webhook URL for the deployment you are repairing. Do not hardcode a real tool ID into repo config or docs.
+For standalone tool PATCH/editor payloads, use the shape accepted by that endpoint or shown in the dashboard. In particular, the captain's working live-tool PATCH payload may use `properties` arrays with `id` fields, boolean `required` values per property, and `constant_value` for the fixed `tool_name`. Do not force that standalone PATCH/editor shape into inline `agents/create` tools. Keep the Keywize webhook URL pointed at the deployment you are repairing, and do not hardcode a real tool ID into repo config or docs.
 
 Successful responses include `success: true` plus the tool-specific result, such as a `missionId`, `quoteId`, VoiceTrust `signal`, tone classification, or updated quote.
 
