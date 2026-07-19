@@ -139,23 +139,25 @@ To run it:
 3. Submit the authorized form, wait for three stored quote cards, then select **Negotiate fastest option**.
 4. Open the report only after the mission reaches **Terms secured**.
 
-The optional **Live Sandbox Proof** uses ElevenLabs' documented server-side Twilio outbound endpoint. It is restricted to a private registry of team-controlled vendor persona destinations. Configure these server-only placeholders:
+The optional **Live Sandbox Proof** uses ElevenLabs' documented server-side Twilio outbound endpoint. It is restricted to a private registry of team-controlled vendor persona destinations. When this mode is enabled, configure this canonical set of required server-only variables in every Vercel environment where the deployment runs:
 
 ```txt
 ELEVENLABS_API_KEY=
 ELEVENLABS_CALLER_AGENT_ID=
 ELEVENLABS_CLOSER_AGENT_ID=
-ELEVENLABS_SANDBOX_PHONE_NUMBER_ID=
-ELEVENLABS_ENVIRONMENT=
+ELEVENLABS_AGENT_PHONE_NUMBER_ID=
 KEYWIZE_SANDBOX_VENDOR_A_PHONE=
 KEYWIZE_SANDBOX_VENDOR_B_PHONE=
 KEYWIZE_SANDBOX_VENDOR_C_PHONE=
-KEYWIZE_LIVE_SANDBOX_FALLBACK_MS=20000
 ```
 
-Never prefix these names with `NEXT_PUBLIC_`. The browser sends only a mission ID, vendor slot, and role. `/api/elevenlabs/call` rejects raw destination numbers, and the server selects the role-specific agent and allowlisted destination. Caller receives job and service-area facts but not the user's budget or competing quote. Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
+`ELEVENLABS_AGENT_PHONE_NUMBER_ID` is the linked outbound phone number provider ID, not a destination phone number. Existing deployments that use `ELEVENLABS_SANDBOX_PHONE_NUMBER_ID` remain supported as a backward-compatible alias, but new Vercel configuration should use the canonical name above. `ELEVENLABS_ENVIRONMENT` is an optional ElevenLabs environment selector. `KEYWIZE_LIVE_SANDBOX_FALLBACK_MS` is an optional timeout and defaults to 20000 milliseconds.
 
-If any live configuration is absent, call initiation fails, or correlated tool results do not arrive before the timeout, the same mission visibly switches to the reliable simulated replay. The UI keeps the `Live Sandbox` badge and displays the fallback reason. This prevents live transport from becoming the critical demo path.
+Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured` and `missingEnvNames` only. It never returns configured values. A missing-variable fallback also names only the canonical missing variables, for example `Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE`.
+
+The browser sends only a mission ID, vendor slot, and role. `/api/elevenlabs/call` rejects raw destination numbers, and the server selects the role-specific agent and allowlisted destination. Caller receives job and service-area facts but not the user's budget or competing quote. Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
+
+If any live configuration is absent, call initiation fails, or correlated tool results do not arrive before the timeout, the same mission visibly switches to the reliable simulated replay. The UI keeps the `Live Sandbox` badge and displays the fallback reason, including canonical missing variable names when configuration is incomplete. This prevents live transport from becoming the critical demo path.
 
 Live sandbox writes require `missionId` and `callId` correlation that matches the server's private call registry. Existing reliable demo tool payload aliases remain supported. Update a sandbox agent's tool schema only as a deliberate reviewed configuration change. Do not patch live agents or tools while testing this web flow.
 
