@@ -59,6 +59,8 @@ TWILIO_WEBHOOK_URL=https://YOUR_DEPLOYED_APP_URL/api/twilio/inbound
 
 Keywize live sandbox does not use `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, or Twilio's REST API to start outbound calls. The server calls ElevenLabs' Twilio outbound endpoint with an ElevenLabs-linked phone number. Check ElevenLabs Conversations first. Twilio logs appear only in the Twilio project that owns the linked outbound leg or destination inbound leg, which may not be the project configured for this inbound stub.
 
+Changing the app's Twilio account alone does not update live sandbox outbound telephony. For an outbound provider-account change, link or import the new account's number inside ElevenLabs, update `ELEVENLABS_AGENT_PHONE_NUMBER_ID` in the active deployment environment, and redeploy.
+
 If a team-controlled Twilio number is used as a live sandbox destination, do not point it at `/api/twilio/inbound`. Configure its **A call comes in** webhook/TwiML as a multi-turn Vendor A/B/C persona and verify it manually. A default Twilio trial/demo prompt, static "press any key to execute your code" application, or immediate hangup is not a vendor persona and cannot produce a Keywize quote webhook. Follow the readiness gate and both supported destination paths in the ElevenLabs setup guide.
 
 ## MVP behavior

@@ -12,17 +12,31 @@ import {
   providerConversationHasEnded,
   providerConversationShowsAnswer,
 } from "./liveSandboxDiagnostics";
+import {
+  closerUnavailableFallback,
+  missingLiveSandboxConfigFallback,
+  providerRequestRejectedFallback,
+  providerStartUnconfirmedFallback,
+  providerUnreachableFallback,
+  unreadyTwilioPersonaFallback,
+  unresolvedLiveSandboxConfigFallback,
+} from "./liveSandboxFallback";
 import { liveSandboxVendorLabel } from "./liveSandboxGuide";
 import {
   getLiveSandboxEnvValue,
   getLiveSandboxPhoneNumberId,
   inspectLiveSandboxConfig,
   inspectLiveSandboxTelephony,
-  liveSandboxConfigFallbackReason,
   liveSandboxTelephonyBlockingReason,
   type LiveSandboxConfigStatus,
 } from "./liveSandboxConfig";
-import type { CallRole, Mission, VendorCall, VendorId } from "./types";
+import type {
+  CallRole,
+  LiveSandboxFallbackDiagnostic,
+  Mission,
+  VendorCall,
+  VendorId,
+} from "./types";
 
 const OUTBOUND_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call";
 const CONVERSATIONS_URL = "https://api.elevenlabs.io/v1/convai/conversations";
@@ -107,10 +121,14 @@ function closerFirstMessage(mission: Mission): string {
   );
 }
 
+type SandboxCallResult =
+  | { ok: true }
+  | { ok: false; fallback: LiveSandboxFallbackDiagnostic };
+
 export async function initiateSandboxCall(
   mission: Mission,
   call: VendorCall
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<SandboxCallResult> {
   const telephonyDiagnostics = inspectLiveSandboxTelephony(process.env);
   mission.liveSandboxTelephony = telephonyDiagnostics;
   const telephonyBlockingReason = liveSandboxTelephonyBlockingReason(
@@ -118,20 +136,20 @@ export async function initiateSandboxCall(
   );
   if (telephonyBlockingReason) {
     call.status = "failed";
-    return { ok: false, reason: telephonyBlockingReason };
+    return { ok: false, fallback: unreadyTwilioPersonaFallback() };
   }
 
   const configStatus = getLiveSandboxConfigStatus();
   if (!configStatus.configured) {
     return {
       ok: false,
-      reason: liveSandboxConfigFallbackReason(configStatus),
+      fallback: missingLiveSandboxConfigFallback(configStatus),
     };
   }
 
   const config = configFor(call.role, call.vendorId);
   if (!config.apiKey || !config.agentId || !config.agentPhoneNumberId || !config.destination) {
-    return { ok: false, reason: "Live sandbox configuration could not be resolved safely." };
+    return { ok: false, fallback: unresolvedLiveSandboxConfigFallback() };
   }
 
   call.status = "ringing";
@@ -199,10 +217,16 @@ export async function initiateSandboxCall(
 
     if (!response.ok) {
       call.status = "failed";
+      const providerErrorBody = (await response.text().catch(() => "")).slice(
+        0,
+        8_192
+      );
       return {
         ok: false,
-        reason:
-          "ElevenLabs rejected the controlled outbound request. Check the linked phone number, Twilio integration, outbound permissions, and billing in ElevenLabs before retrying.",
+        fallback: providerRequestRejectedFallback(
+          response.status,
+          providerErrorBody
+        ),
       };
     }
 
@@ -211,8 +235,7 @@ export async function initiateSandboxCall(
       call.status = "failed";
       return {
         ok: false,
-        reason:
-          "ElevenLabs did not confirm that the controlled call started. Check ElevenLabs Conversations and the linked Twilio integration; Keywize did not call Twilio's REST API directly.",
+        fallback: providerStartUnconfirmedFallback(),
       };
     }
 
@@ -242,8 +265,7 @@ export async function initiateSandboxCall(
     call.status = "failed";
     return {
       ok: false,
-      reason:
-        "Keywize could not reach the ElevenLabs outbound API. No direct Twilio REST request was made; verify ElevenLabs availability and server connectivity.",
+      fallback: providerUnreachableFallback(),
     };
   }
 }
@@ -346,7 +368,10 @@ export async function refreshLiveSandboxCallStatuses(
 
 export async function initiateNextSandboxCallerCall(
   mission: Mission
-): Promise<{ ok: true; allStarted: boolean } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; allStarted: boolean }
+  | { ok: false; fallback: LiveSandboxFallbackDiagnostic }
+> {
   const callerCalls = mission.vendorCalls.filter((call) => call.role === "caller");
   const nextIndex = callerCalls.findIndex((call) => call.status === "queued");
   if (nextIndex < 0) return { ok: true, allStarted: true };
@@ -383,7 +408,7 @@ export async function advanceLiveSandboxCallerCalls(
 
   const result = await initiateNextSandboxCallerCall(mission);
   if (!result.ok) {
-    activateReliableFallback(mission, result.reason);
+    activateReliableFallback(mission, result.fallback);
     return true;
   }
   const queuedAfter = mission.vendorCalls.filter(
@@ -411,14 +436,14 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
   if (!configStatus.configured) {
     activateReliableFallback(
       mission,
-      liveSandboxConfigFallbackReason(configStatus)
+      missingLiveSandboxConfigFallback(configStatus)
     );
     return;
   }
 
   const firstCall = await initiateNextSandboxCallerCall(mission);
   if (!firstCall.ok) {
-    activateReliableFallback(mission, firstCall.reason);
+    activateReliableFallback(mission, firstCall.fallback);
     return;
   }
 
@@ -437,7 +462,7 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
 export async function startLiveSandboxNegotiation(mission: Mission): Promise<void> {
   const closerCall = mission.vendorCalls.find((call) => call.role === "closer");
   if (!closerCall) {
-    activateNegotiationFallback(mission, "Live Closer call is unavailable.");
+    activateNegotiationFallback(mission, closerUnavailableFallback());
     return;
   }
 
@@ -445,14 +470,14 @@ export async function startLiveSandboxNegotiation(mission: Mission): Promise<voi
   if (!configStatus.configured) {
     activateNegotiationFallback(
       mission,
-      liveSandboxConfigFallbackReason(configStatus)
+      missingLiveSandboxConfigFallback(configStatus)
     );
     return;
   }
 
   const result = await initiateSandboxCall(mission, closerCall);
   if (!result.ok) {
-    activateNegotiationFallback(mission, result.reason);
+    activateNegotiationFallback(mission, result.fallback);
     return;
   }
 

@@ -239,6 +239,8 @@ The optional **Live Sandbox Proof** is initiated by Keywize through ElevenLabs' 
 
 This boundary matters for logs. Start in ElevenLabs Conversations and outbound calling diagnostics. A Twilio Console contains a log only when that Twilio project owns the linked outbound leg or the destination's inbound leg. Looking at an unrelated Keywize Twilio project can correctly show no calls even though ElevenLabs accepted an outbound request.
 
+Changing the app's Twilio account or `TWILIO_*` variables alone does not change this path. If the outbound Twilio provider account changes, link or import a phone number from that account inside ElevenLabs, update `ELEVENLABS_AGENT_PHONE_NUMBER_ID` with the resulting ElevenLabs phone-number ID, update any controlled destination settings as needed, and redeploy the active Vercel environment.
+
 Live sandbox is restricted to a private registry of team-controlled vendor persona destinations. When this mode is enabled, configure this canonical set of required server-only variables in every Vercel environment where the deployment runs:
 
 ```txt
@@ -259,7 +261,7 @@ KEYWIZE_SANDBOX_TWILIO_PERSONA_READY=false
 
 `KEYWIZE_SANDBOX_DESTINATION_KIND` is a safe enum that may be shown in browser diagnostics; it never contains a number or provider identifier. Existing deployments without it remain callable but show an ambiguity warning. When it is `twilio_vendor_persona`, Keywize refuses to dial until `KEYWIZE_SANDBOX_TWILIO_PERSONA_READY=true`. Set that acknowledgement only after manually verifying the Twilio destination's inbound Voice app as described below.
 
-Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured`, `callReady`, canonical `missingEnvNames`, and the safe telephony diagnostics described below. It never returns configured values. `configured` means required values exist; `callReady` is false when a declared Twilio destination has not passed the persona-readiness gate. A missing-variable fallback names only canonical missing variables, for example `Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE`.
+Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured`, `callReady`, canonical `missingEnvNames`, `diagnosticsVersion`, an optional fixed `blockingDiagnostic`, and the safe telephony diagnostics described below. It never returns configured values. `configured` means required values exist; `callReady` is false when a declared Twilio destination has not passed the persona-readiness gate. A missing-variable fallback names only canonical missing variables, for example `Live calls disabled: missing KEYWIZE_SANDBOX_VENDOR_B_PHONE`. If the endpoint does not report `diagnosticsVersion: live-sandbox-fallback-v2`, the deployment does not contain the current fallback diagnostics and must be updated before troubleshooting its labels.
 
 ### Live sandbox test procedure
 
@@ -316,9 +318,9 @@ The mission UI exposes only vendor-slot names, safe provider enums, and these li
 - **tool_called** means the correlated `save_quote` webhook reached Keywize. It may still be rejected for safe validation reasons.
 - **quote_saved** means the structured quote passed validation and was persisted.
 - **timed_out_no_quote** means: "Call placed, but no quote webhook arrived. Check that the destination answers as Vendor A/B/C." If the destination is Twilio, also verify its inbound Voice webhook/TwiML runs the vendor persona instead of a default trial/demo app.
-- **fallback** means only missing demo results are being completed from the visibly disclosed persona fixtures.
+- **fallback** means only missing demo results are being completed from the visibly disclosed persona fixtures. The fallback card names the stage, exact safe cause, and next action. Examples include `Live calls disabled: missing ELEVENLABS_AGENT_PHONE_NUMBER_ID`, `Live call request failed before dialing: provider rejected the phone-number ID`, and `Call placed but no quote webhook arrived; using replay`.
 
-The browser receives no destination number, API key, agent ID, phone number ID, provider ID, Twilio SID, ElevenLabs conversation ID, or raw call ID. `GET /api/elevenlabs/call` returns the fixed safe path (`elevenlabs` initiator, `twilio` integration, direct Keywize Twilio REST usage `false`), destination-kind enum, readiness boolean, and canonical missing environment variable names only.
+Provider error bodies are classified only on the server into fixed safe cause codes. Raw provider text is never persisted, logged by this path, or returned to the browser. The browser receives no destination number, API key, agent ID, phone number ID, provider ID, Twilio SID, ElevenLabs conversation ID, or raw call ID. `GET /api/elevenlabs/call` returns the fixed safe path (`elevenlabs` initiator, `twilio` integration, direct Keywize Twilio REST usage `false`), destination-kind enum, readiness boolean, and canonical missing environment variable names only.
 
 #### Log lookup by leg
 

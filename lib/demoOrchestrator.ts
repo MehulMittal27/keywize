@@ -9,8 +9,19 @@ import {
   markLiveSandboxFallbackUsed,
   markLiveSandboxTimedOut,
 } from "./liveSandboxDiagnostics";
+import {
+  negotiationTimeoutFallback,
+  quoteWaitFallback,
+} from "./liveSandboxFallback";
 import { liveSandboxVendorLabel } from "./liveSandboxGuide";
-import type { Mission, MissionEventSource, VendorCall, VendorId, VoiceTrustSignal } from "./types";
+import type {
+  LiveSandboxFallbackDiagnostic,
+  Mission,
+  MissionEventSource,
+  VendorCall,
+  VendorId,
+  VoiceTrustSignal,
+} from "./types";
 
 const REPLAY_STEP_DELAY_MS = 650;
 const VENDOR_ORDER: VendorId[] = ["vendor_a", "vendor_b", "vendor_c"];
@@ -41,8 +52,25 @@ export function startReliableDemo(mission: Mission): void {
   });
 }
 
-export function activateReliableFallback(mission: Mission, reason: string): void {
-  mission.fallbackReason = reason;
+type FallbackReason = string | LiveSandboxFallbackDiagnostic;
+
+function applyFallbackReason(mission: Mission, fallback: FallbackReason): string {
+  if (typeof fallback === "string") {
+    mission.fallbackReason = fallback;
+    delete mission.liveSandboxFallback;
+    return fallback;
+  }
+
+  mission.liveSandboxFallback = fallback;
+  mission.fallbackReason = fallback.detail;
+  return fallback.detail;
+}
+
+export function activateReliableFallback(
+  mission: Mission,
+  fallback: FallbackReason
+): void {
+  const reason = applyFallbackReason(mission, fallback);
   mission.status = "calling_vendors";
   mission.orchestration.replayActive = true;
   mission.orchestration.quoteCursor = 0;
@@ -65,8 +93,11 @@ export function activateReliableFallback(mission: Mission, reason: string): void
   });
 }
 
-export function activateNegotiationFallback(mission: Mission, reason: string): void {
-  mission.fallbackReason = reason;
+export function activateNegotiationFallback(
+  mission: Mission,
+  fallback: FallbackReason
+): void {
+  const reason = applyFallbackReason(mission, fallback);
   mission.orchestration.replayActive = true;
   mission.orchestration.negotiationCursor = 0;
   mission.orchestration.nextActionAt = nextAction(150);
@@ -373,12 +404,15 @@ export function advanceMissionOrchestration(mission: Mission): boolean {
   if (!mission.orchestration.replayActive && liveFallbackAt && now >= liveFallbackAt) {
     if (mission.status === "calling_vendors") {
       recordLiveQuoteTimeout(mission);
+      const pendingCalls = mission.vendorCalls.filter(
+        (call) => call.role === "caller" && !call.quoteId
+      );
       activateReliableFallback(
         mission,
-        "The bounded live sandbox wait ended before all three structured quotes were saved. See Live proof diagnostics below."
+        quoteWaitFallback(pendingCalls, mission.quotes.length)
       );
     } else if (mission.status === "negotiating") {
-      activateNegotiationFallback(mission, "The live Closer call did not confirm terms in time.");
+      activateNegotiationFallback(mission, negotiationTimeoutFallback());
     }
     return true;
   }

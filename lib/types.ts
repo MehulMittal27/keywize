@@ -98,6 +98,42 @@ export type LiveSandboxCallDiagnostics = {
   fallbackReplayUsed: boolean;
 };
 
+export type LiveSandboxFallbackCode =
+  | "missing_configuration"
+  | "configuration_unresolved"
+  | "destination_persona_not_ready"
+  | "provider_auth_rejected"
+  | "provider_billing_rejected"
+  | "provider_destination_rejected"
+  | "provider_phone_number_id_rejected"
+  | "provider_agent_id_rejected"
+  | "provider_permission_rejected"
+  | "provider_request_rejected"
+  | "provider_start_unconfirmed"
+  | "provider_unreachable"
+  | "quote_webhook_rejected"
+  | "quote_not_saved"
+  | "quote_webhook_missing"
+  | "answer_or_webhook_not_confirmed"
+  | "quote_wait_expired"
+  | "closer_unavailable"
+  | "negotiation_timeout";
+
+export type LiveSandboxFallbackStage =
+  | "configuration"
+  | "pre_dial"
+  | "provider_request"
+  | "quote_webhook"
+  | "negotiation";
+
+export type LiveSandboxFallbackDiagnostic = {
+  code: LiveSandboxFallbackCode;
+  stage: LiveSandboxFallbackStage;
+  title: string;
+  detail: string;
+  action: string;
+};
+
 export type MissionEventCategory =
   | "status"
   | "call"
@@ -293,6 +329,7 @@ export type Mission = {
   approval: MissionApproval | null;
   orchestration: MissionOrchestration;
   liveSandboxTelephony?: LiveSandboxTelephonyDiagnostics;
+  liveSandboxFallback?: LiveSandboxFallbackDiagnostic;
   fallbackReason?: string;
   selectedVendorId?: string;
   recordingUrl?: string;

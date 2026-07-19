@@ -134,12 +134,3 @@ export function inspectLiveSandboxConfig(
     missingEnvNames,
   };
 }
-
-export function liveSandboxConfigFallbackReason(
-  status: LiveSandboxConfigStatus
-): string {
-  if (status.configured) return "Live sandbox configuration is available.";
-  return `Live sandbox is not configured on this server. Missing: ${status.missingEnvNames.join(
-    ", "
-  )}.`;
-}
