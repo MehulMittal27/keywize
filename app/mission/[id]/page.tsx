@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { VoiceTrustBadge } from "../../../components/VoiceTrustBadge";
 import { ConfidenceWaveform } from "../../../components/ConfidenceWaveform";
+import type { Mission } from "../../../lib/types";
 
 const STEPS = [
   "Intake complete",
@@ -22,6 +23,29 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
   const [isNegotiating, setIsNegotiating] = useState(false);
   const [negotiated, setNegotiated] = useState(false);
   const [vendorCPrice, setVendorCPrice] = useState(165);
+  const [mission, setMission] = useState<Mission | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/missions/${id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: Mission | null) => {
+        if (cancelled || !data) return;
+        setMission(data);
+        const premium = data.quotes.find((quote) => quote.vendorName === "Premium Secure");
+        if (premium?.totalEstimate) setVendorCPrice(premium.totalEstimate);
+      })
+      .catch(() => {
+        // Keep the demo page reliable with built-in mock values.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const jobSpec = mission?.jobSpec;
 
   // Auto-progress through steps
   useEffect(() => {
@@ -35,11 +59,15 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
     setIsNegotiating(true);
     setStep(5);
     try {
-      await fetch("/api/negotiate", {
+      const res = await fetch("/api/negotiate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ missionId: id }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        setMission(data.mission);
+      }
     } catch {
       // ignore — fallback to mock
     }
@@ -86,27 +114,27 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
             <ul className="space-y-2 text-sm">
               <li className="flex justify-between">
                 <span className="text-gray-500">Issue:</span>
-                <span className="font-semibold">Broken key inside lock</span>
+                <span className="font-semibold">{jobSpec?.caseType.replaceAll("_", " ") ?? "Broken key inside lock"}</span>
               </li>
               <li className="flex justify-between">
                 <span className="text-gray-500">Door:</span>
-                <span className="font-semibold">Main entry · Deadbolt</span>
+                <span className="font-semibold">{jobSpec ? `${jobSpec.doorType.replaceAll("_", " ")} · ${jobSpec.lockType.replaceAll("_", " ")}` : "Main entry · Deadbolt"}</span>
               </li>
               <li className="flex justify-between">
                 <span className="text-gray-500">Location:</span>
-                <span className="font-semibold">SF, 94109</span>
+                <span className="font-semibold">{jobSpec ? `${jobSpec.locationCity}, ${jobSpec.locationZip}` : "SF, 94109"}</span>
               </li>
               <li className="flex justify-between">
                 <span className="text-gray-500">Urgency:</span>
-                <span className="font-semibold">Locked out NOW</span>
+                <span className="font-semibold">{jobSpec?.urgency.replaceAll("_", " ") ?? "Locked out NOW"}</span>
               </li>
               <li className="flex justify-between border-t border-gray-100 pt-2 mt-2">
                 <span className="text-gray-500">Ideal price:</span>
-                <span className="font-semibold">$120</span>
+                <span className="font-semibold">${jobSpec?.idealPrice ?? 120}</span>
               </li>
               <li className="flex justify-between">
                 <span className="text-red-500 font-medium">Max Budget:</span>
-                <span className="font-bold text-red-600">$150</span>
+                <span className="font-bold text-red-600">${jobSpec?.maxPrice ?? 150}</span>
               </li>
             </ul>
           </div>
