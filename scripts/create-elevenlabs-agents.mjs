@@ -11,6 +11,7 @@ const ELEVENLABS_CONVAI_AGENTS_BASE_URL = "https://api.elevenlabs.io/v1/convai/a
 const ELEVENLABS_AGENT_CREATE_URL = `${ELEVENLABS_CONVAI_AGENTS_BASE_URL}/create`;
 const ENV_FILE_PATH = path.resolve(process.cwd(), process.env.KEYWIZE_ENV_FILE_PATH ?? ".env.local");
 const TOOL_ENDPOINT_PATH = "/api/elevenlabs/tools";
+const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_turbo_v2";
 
 const AGENT_DEFINITIONS = [
   {
@@ -233,6 +234,18 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
   };
 }
 
+function validateElevenLabsVoiceMode(payloads) {
+  for (const { name, payload } of payloads) {
+    const textOnly = payload.conversation_config?.conversation?.text_only;
+
+    if (textOnly !== false) {
+      throw new Error(
+        `${name} must explicitly set conversation_config.conversation.text_only to false for voice mode.`,
+      );
+    }
+  }
+}
+
 function validateElevenLabsToolSchema(payloads) {
   for (const { name, payload } of payloads) {
     const tools = payload.conversation_config?.agent?.prompt?.tools ?? [];
@@ -311,12 +324,41 @@ function assertToolBodyPropertySources(schema, pathLabel) {
   }
 }
 
-function buildAgentPayload({ name, prompt, tools }, webhookUrl) {
+function buildVoiceModeConfig(env) {
+  // Schema assumption: ElevenLabs Conversational AI create accepts
+  // conversation_config.conversation.text_only for Chat/Text-only mode and
+  // conversation_config.tts for text-to-speech output. Keep these fields
+  // isolated here so schema drift is easy to update without touching tool
+  // payload behavior.
+  const ttsConfig = {
+    model_id: env.get("ELEVENLABS_TTS_MODEL_ID") || DEFAULT_ELEVENLABS_TTS_MODEL_ID,
+  };
+  const voiceId = env.get("ELEVENLABS_VOICE_ID");
+  const outputFormat = env.get("ELEVENLABS_AGENT_OUTPUT_AUDIO_FORMAT");
+
+  if (voiceId) {
+    ttsConfig.voice_id = voiceId;
+  }
+
+  if (outputFormat) {
+    ttsConfig.agent_output_audio_format = outputFormat;
+  }
+
+  return {
+    conversation: {
+      text_only: false,
+    },
+    tts: ttsConfig,
+  };
+}
+
+function buildAgentPayload({ name, prompt, tools }, webhookUrl, voiceModeConfig) {
   // Schema assumption: this is the current Conversational AI agent create shape.
   // Keep this isolated so updates are local if ElevenLabs changes field names.
   return {
     name,
     conversation_config: {
+      ...voiceModeConfig,
       agent: {
         prompt: {
           prompt,
@@ -425,6 +467,7 @@ async function main() {
   const apiKey = env.get("ELEVENLABS_API_KEY");
   const appUrl = env.get("NEXT_PUBLIC_APP_URL");
   const webhookUrl = buildWebhookUrl(appUrl);
+  const voiceModeConfig = buildVoiceModeConfig(env);
 
   const agentInputs = await Promise.all(
     AGENT_DEFINITIONS.map(async (definition) => ({
@@ -436,9 +479,10 @@ async function main() {
   const payloads = agentInputs.map((agentInput) => ({
     envKey: agentInput.envKey,
     name: agentInput.name,
-    payload: buildAgentPayload(agentInput, webhookUrl),
+    payload: buildAgentPayload(agentInput, webhookUrl, voiceModeConfig),
   }));
 
+  validateElevenLabsVoiceMode(payloads);
   validateElevenLabsToolSchema(payloads);
 
   if (dryRun) {
@@ -456,6 +500,8 @@ async function main() {
 
     console.log(`Dry run validated ${payloads.length} ElevenLabs agent payloads.`);
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
+    console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
+    console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
     console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool and payload.");
     console.log(`Tool split:\n${toolSummary}`);
     console.log("No agents were created and the env file was not updated.");

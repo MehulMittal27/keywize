@@ -31,6 +31,27 @@ POST https://api.elevenlabs.io/v1/convai/agents/create
 
 Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
 
+The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
+
+```txt
+ELEVENLABS_VOICE_ID=
+ELEVENLABS_TTS_MODEL_ID=eleven_turbo_v2
+ELEVENLABS_AGENT_OUTPUT_AUDIO_FORMAT=
+```
+
+Leave `ELEVENLABS_VOICE_ID` blank to use the ElevenLabs default voice configured for the agent. Change the TTS model or output format only to values supported by your ElevenLabs account and integration.
+
+## Voice-mode checklist
+
+If a published ElevenLabs test or widget replies with text instead of audio, check both the generated agent config and the dashboard/widget settings:
+
+1. Pull the latest code and rerun `node scripts/create-elevenlabs-agents.mjs` if the agent config changed. Existing agents created before the voice-mode config was added may still be in text-only mode.
+2. In the ElevenLabs agent dashboard, open the agent settings and confirm Advanced `Text only` is off.
+3. In the widget settings, set Widget Interface to `Voice only` or `Voice + text`, not `Text only` or chat-only mode.
+4. Start the test from the microphone or voice button. Typing into a chat input can still produce a text reply even when voice is enabled.
+5. Allow browser microphone permissions and audio playback permissions for the ElevenLabs test page or embedded widget host.
+6. Confirm the agent has a voice selected in ElevenLabs, or provide `ELEVENLABS_VOICE_ID` before rerunning the setup script.
+
 ## Tool endpoints
 
 The agents should call backend tools for:
