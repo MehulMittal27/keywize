@@ -1,441 +1,636 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { use, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConfidenceWaveform } from "@/components/ConfidenceWaveform";
-import { VendorDoorsScene, type DoorPhase } from "@/components/VendorDoorsScene";
+import { VendorCallProgress } from "@/components/VendorCallProgress";
+import { VoiceTrustBadge } from "@/components/VoiceTrustBadge";
+import {
+  LIVE_SANDBOX_ROLEPLAY,
+  LIVE_SANDBOX_VENDOR_ORDER,
+} from "@/lib/liveSandboxGuide";
+import type {
+  LiveSandboxTelephonyDiagnostics,
+  Mission,
+  Quote,
+  VendorCall,
+  VendorCallStatus,
+} from "@/lib/types";
 
-const STEPS = [
-  "Intake complete",
-  "Finding specialists nearby",
-  "Calling Marcus Webb · Speedy Lock & Key",
-  "Calling Daniel Reyes · Neighborhood Locksmith",
-  "Calling Alex Petrov · Premium Secure",
-  "Negotiating with Alex Petrov",
-  "Recommendation ready",
-];
+const STATUS_LABELS: Record<VendorCallStatus, string> = {
+  queued: "Queued",
+  ringing: "Ringing",
+  connected: "Connected",
+  quote_saved: "Quote saved",
+  complete: "Complete",
+  failed: "Failed",
+  replay_fallback: "Replay fallback",
+};
 
-const SPECIALISTS = [
-  {
-    key: "A",
-    firstName: "Marcus",
-    lastName: "Webb",
-    company: "Speedy Lock & Key",
-    price: "$39 + ?" as string,
-    priceRaw: null as number | null,
-    eta: "20 min",
-    risk: "High" as "High" | "Medium" | "Low",
-    riskScore: 85,
-    trustLevel: "Low" as "Low" | "Medium" | "High",
-    trustScore: 35,
-    quote: "\"Uh… well, it depends on the lock.\"",
-    tags: ["Tech decides drilling", "No ID required"],
-    tagColors: ["pink", "gray"],
-    negotiable: false,
-    alwaysOverBudget: true,
-  },
-  {
-    key: "B",
-    firstName: "Daniel",
-    lastName: "Reyes",
-    company: "Neighborhood Locksmith",
-    price: "$130" as string,
-    priceRaw: 130 as number | null,
-    eta: "30 min",
-    risk: "Low" as "High" | "Medium" | "Low",
-    riskScore: 10,
-    trustLevel: "High" as "Low" | "Medium" | "High",
-    trustScore: 95,
-    quote: "\"It's $130 total, including dispatch.\"",
-    tags: ["No-drill first", "ID verified", "All-in confirmed"],
-    tagColors: ["blue", "gray", "green"],
-    negotiable: false,
-    alwaysOverBudget: false,
-  },
-  {
-    key: "C",
-    firstName: "Alex",
-    lastName: "Petrov",
-    company: "Premium Secure",
-    price: "$165" as string,
-    priceRaw: 165 as number | null,
-    eta: "15 min",
-    risk: "Medium" as "High" | "Medium" | "Low",
-    riskScore: 25,
-    trustLevel: "Medium" as "Low" | "Medium" | "High",
-    trustScore: 65,
-    quote: "\"Um, we can drop it to $145 if you book right now.\"",
-    tags: ["Starts at $165", "ID required"],
-    tagColors: ["yellow", "gray"],
-    negotiable: true,
-    alwaysOverBudget: false,
-  },
-];
+function humanize(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-const MAX_BUDGET = 110;
+// Vendor A is the deliberately risky bait-and-switch persona. While a call to
+// it is still in flight we show a generic "searching" label and give it no
+// clickable quote window - its real identity and risk flag still surface on
+// the final report once quotes are in.
+const HIDDEN_VENDOR_ID = "vendor_a";
+const SEARCHING_LABEL = "Searching locksmiths nearby";
 
-function TagChip({ label, color }: { label: string; color: string }) {
-  const colors: Record<string, string> = {
-    pink: "bg-pink-50 text-pink-600 border-pink-100",
-    blue: "bg-blue-50 text-blue-700 border-blue-100",
-    green: "bg-[#30a985]/10 text-[#1a7a5a] border-[#30a985]/20",
-    yellow: "bg-yellow-50 text-yellow-700 border-yellow-100",
-    gray: "bg-gray-100 text-gray-600 border-gray-200",
-  };
+function displayVendorName(vendorId: string, vendorName: string): string {
+  return vendorId === HIDDEN_VENDOR_ID ? SEARCHING_LABEL : vendorName;
+}
+
+function modeLabel(mission: Mission): string {
+  if (mission.mode === "reliable_demo") return "Reliable Demo - simulated vendors";
+  if (mission.fallbackReason) return "Live Sandbox - reliable replay fallback";
+  return "Live Sandbox - controlled calls";
+}
+
+function liveDiagnosticText(call: VendorCall): string[] {
+  const diagnostics = call.liveDiagnostics;
+  const vendorLabel = LIVE_SANDBOX_ROLEPLAY[call.vendorId].label;
+  const lines = [
+    diagnostics?.callStartedAt
+      ? "call_started - ElevenLabs accepted the outbound request; this is not proof of answer"
+      : call.fallbackUsed
+        ? "call_started - not reached before fallback"
+        : "call_started - waiting for this slot in A, B, C order",
+  ];
+
+  if (diagnostics?.phoneAnsweredAt) {
+    lines.push(
+      diagnostics.answerEvidence === "correlated_tool_webhook"
+        ? "callee_answered - inferred from the correlated tool webhook"
+        : "callee_answered - inferred from ElevenLabs conversation activity, not a direct carrier callback"
+    );
+  } else if (diagnostics?.callStartedAt) {
+    lines.push(
+      diagnostics.phoneSessionEndedAt
+        ? "callee_answered - not confirmed before the provider session ended"
+        : "callee_answered - not confirmed yet"
+    );
+  }
+
+  switch (diagnostics?.toolWebhook) {
+    case "quote_saved":
+      lines.push("tool_called - save_quote reached Keywize");
+      lines.push("quote_saved - structured quote persisted");
+      break;
+    case "rejected":
+      lines.push(
+        `tool_called - save_quote rejected: ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}`
+      );
+      break;
+    case "received":
+      lines.push("tool_called - save_quote reached Keywize; quote not saved yet");
+      break;
+    default:
+      lines.push("tool_called - save_quote has not reached Keywize");
+  }
+
+  if (diagnostics?.phoneSessionEndedAt && !call.quoteId && !diagnostics.timedOut) {
+    lines.push(
+      `call_ended_no_quote - Call placed, but no quote webhook arrived. Check that the destination answers as ${vendorLabel}.`
+    );
+  }
+  if (diagnostics?.timedOut) {
+    lines.push(
+      `timed_out_no_quote - Call placed, but no quote webhook arrived. Check that the destination answers as ${vendorLabel}.`
+    );
+  }
+  if (diagnostics?.fallbackReplayUsed) lines.push("fallback - disclosed reliable replay used");
+  return lines;
+}
+
+function destinationSetupText(
+  telephony: LiveSandboxTelephonyDiagnostics | undefined
+): string {
+  if (telephony?.destinationKind === "human_tester") {
+    return "Destination: human tester. Pick up and answer as the on-screen Vendor A, B, or C persona.";
+  }
+  if (telephony?.destinationKind === "twilio_vendor_persona") {
+    return telephony.destinationPersonaReady
+      ? "Destination: Twilio vendor persona, declared ready. Its inbound Voice webhook must conduct the vendor roleplay."
+      : "Destination: Twilio number, but persona readiness is not confirmed. Keywize will not dial until its inbound Voice webhook conducts the vendor roleplay.";
+  }
+  return "Destination type is not declared. Set KEYWIZE_SANDBOX_DESTINATION_KIND so diagnostics can distinguish a human tester from a Twilio vendor persona.";
+}
+
+function LiveSandboxPanel({
+  calls,
+  telephony,
+}: {
+  calls: VendorCall[];
+  telephony: LiveSandboxTelephonyDiagnostics | undefined;
+}) {
   return (
-    <span className={`px-2.5 py-0.5 rounded-[8px] text-xs font-medium border ${colors[color] ?? colors.gray}`}>
-      {label}
-    </span>
+    <section className="rounded-3xl border border-pink-200 bg-pink-50 p-5" aria-label="Live sandbox roleplay and diagnostics">
+      <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
+        Controlled sandbox - tester action required
+      </p>
+      <h2 className="mt-2 font-serif text-xl font-semibold">Answer each call as the assigned vendor.</h2>
+      <p className="mt-2 text-sm leading-relaxed text-pink-900">
+        The linked Keywize number calls only configured test phones, one at a time in A, B, C order. Stay on through the final readback so the Caller can save the quote.
+      </p>
+      <div className="mt-4 rounded-2xl border border-pink-200 bg-white/85 p-4 text-xs leading-relaxed text-gray-700">
+        <p className="font-bold text-black">Provider path: Keywize server → ElevenLabs outbound API → linked Twilio integration → controlled destination.</p>
+        <p className="mt-2">Keywize does not use its TWILIO_* credentials or call Twilio&apos;s REST API for this flow. Start with ElevenLabs Conversations/outbound logs. A Twilio Console shows a leg only in the Twilio project that owns that linked or destination leg.</p>
+        <p className="mt-2 font-semibold text-pink-800">{destinationSetupText(telephony)}</p>
+        <p className="mt-2">A recording about a trial account or &ldquo;press any key to execute your code&rdquo; is not the Keywize Caller&apos;s configured opening. It is a telephony gate or Voice app before agent speech. If pressing a key disconnects, inspect the linked integration in ElevenLabs and any Twilio project that owns the affected leg.</p>
+      </div>
+      <div className="mt-4 space-y-3">
+        {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {
+          const roleplay = LIVE_SANDBOX_ROLEPLAY[vendorId];
+          const call = calls.find((candidate) => candidate.vendorId === vendorId);
+          return (
+            <article key={vendorId} className="rounded-2xl bg-white/85 p-4">
+              <p className="text-sm leading-relaxed text-gray-700">
+                <strong className="text-black">Answer as {roleplay.label}:</strong>{" "}
+                {roleplay.instruction}
+              </p>
+              {call && (
+                <ul className="mt-3 space-y-1 border-t border-pink-100 pt-3">
+                  {liveDiagnosticText(call).map((line) => (
+                    <li key={line} className="flex gap-2 text-xs leading-relaxed text-gray-600">
+                      <span className="text-pink-500">•</span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs text-pink-700">
+        These are safe status labels only. Phone numbers and provider identifiers never appear here.
+      </p>
+    </section>
   );
+}
+
+function QuoteCard({
+  quote,
+  isFastest,
+  titleOverride,
+  href,
+  linkLabel = "View full comparison →",
+}: {
+  quote: Quote;
+  isFastest: boolean;
+  titleOverride?: string;
+  href?: string;
+  linkLabel?: string;
+}) {
+  const signal = quote.voiceTrustSignals[0];
+  const isHighRisk = quote.riskLevel === "High";
+  const price = quote.totalEstimate === null
+    ? `Starts at $${quote.dispatchFee ?? "?"}`
+    : `$${quote.totalEstimate}`;
+
+  const className = `relative block overflow-hidden rounded-[28px] border bg-white p-6 shadow-sm transition-all ${
+    isHighRisk
+      ? "border-2 border-pink-200"
+      : isFastest
+        ? "border-2 border-black shadow-lg shadow-black/5"
+        : "border-black/5"
+  } ${href ? "cursor-pointer hover:shadow-md hover:border-[#30a985]/30" : ""}`;
+
+  const content = (
+    <>
+      {isFastest && (
+        <span className="absolute right-0 top-0 rounded-bl-xl bg-black px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+          Fastest ETA
+        </span>
+      )}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-bold">{titleOverride ?? quote.vendorName}</h3>
+            <span
+              className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                quote.riskLevel === "High"
+                  ? "bg-pink-100 text-pink-700"
+                  : quote.riskLevel === "Low"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {quote.riskLevel} risk
+            </span>
+          </div>
+          <p className="text-sm text-gray-500">
+            {quote.isTotalAllIn ? "All-in quote confirmed" : "No firm all-in total"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-serif text-2xl font-bold">{price}</p>
+          <p className="text-sm text-gray-500">
+            {quote.etaMinutes === null ? "ETA unknown" : `${quote.etaMinutes} min ETA`}
+          </p>
+        </div>
+      </div>
+
+      {signal && (
+        <div
+          className={`mt-5 rounded-2xl border p-4 ${
+            signal.trustLevel === "Low"
+              ? "border-pink-100 bg-pink-50"
+              : "border-black/5 bg-[#f8f7f3]"
+          }`}
+        >
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <VoiceTrustBadge level={signal.trustLevel} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              Uncertainty signal, not lie detection
+            </span>
+          </div>
+          <p className="text-sm italic text-gray-700">&ldquo;{signal.vendorText}&rdquo;</p>
+          <div className="mt-3">
+            <ConfidenceWaveform score={quote.voiceTrustScore} />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+          {quote.drillingPolicy}
+        </span>
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+          {quote.idRequired === true ? "Proof required" : quote.idRequired === false ? "No proof required" : "Proof policy unknown"}
+        </span>
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+          Risk {quote.riskScore}/100
+        </span>
+      </div>
+
+      {quote.transcriptEvidence[0] && (
+        <blockquote className="mt-4 border-l-2 border-black/15 pl-3 text-xs leading-relaxed text-gray-600">
+          &ldquo;{quote.transcriptEvidence[0]}&rdquo;
+        </blockquote>
+      )}
+
+      {href && (
+        <p className="mt-4 text-xs font-semibold text-[#25866b]">{linkLabel}</p>
+      )}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <article className={className}>{content}</article>;
 }
 
 export default function MissionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
-
-  const [step, setStep] = useState(0);
+  const [mission, setMission] = useState<Mission | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [isNegotiating, setIsNegotiating] = useState(false);
-  const [negotiated, setNegotiated] = useState(false);
-  const [rejectedVendors, setRejectedVendors] = useState<Set<string>>(new Set());
-  const [acceptedVendor, setAcceptedVendor] = useState<string | null>(null);
 
   useEffect(() => {
-    if (step < 5) {
-      const timer = setTimeout(() => setStep(s => s + 1), 1600);
-      return () => clearTimeout(timer);
-    }
-  }, [step]);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const handleNegotiate = async (vendorKey: string) => {
-    if (vendorKey !== "C" || isNegotiating || negotiated) return;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/missions/${id}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Mission unavailable");
+        const nextMission = (await response.json()) as Mission;
+        if (!active) return;
+        setMission(nextMission);
+        setLoadError("");
+        if (nextMission.status !== "negotiating") setIsNegotiating(false);
+      } catch {
+        if (active) setLoadError("Mission updates paused. Retrying automatically...");
+      } finally {
+        if (active) timer = setTimeout(poll, 700);
+      }
+    };
+
+    void poll();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [id]);
+
+  const quoteByVendor = useMemo(
+    () => new Map(mission?.quotes.map((quote) => [quote.vendorId, quote]) ?? []),
+    [mission]
+  );
+  const fastestEta = mission?.quotes.reduce<number | null>(
+    (fastest, quote) =>
+      quote.etaMinutes !== null && (fastest === null || quote.etaMinutes < fastest)
+        ? quote.etaMinutes
+        : fastest,
+    null
+  );
+  const quoteCalls = mission?.vendorCalls.filter((call) => call.role === "caller") ?? [];
+  const visibleQuoteCalls = quoteCalls.filter((call) => call.vendorId !== HIDDEN_VENDOR_ID);
+  const callProgressCalls = quoteCalls.map((call) => ({
+    ...call,
+    vendorName: displayVendorName(call.vendorId, call.vendorName),
+  }));
+  const reportReady = Boolean(
+    mission && ["terms_secured", "awaiting_approval", "approved"].includes(mission.status)
+  );
+  const quotesReady = Boolean(
+    mission && ["quotes_ready", "awaiting_vendor_selection"].includes(mission.status)
+  );
+
+  const negotiateFastest = async () => {
+    if (!mission) return;
     setIsNegotiating(true);
-    setStep(5);
+    setLoadError("");
     try {
-      await fetch("/api/negotiate", {
+      const response = await fetch("/api/negotiate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ missionId: id }),
+        body: JSON.stringify({ missionId: mission.id }),
       });
-    } catch {
-      // fallback to mock
-    }
-    setTimeout(() => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Negotiation could not start");
+      setMission(data.mission as Mission);
+    } catch (error) {
       setIsNegotiating(false);
-      setNegotiated(true);
-      setStep(6);
-    }, 2200);
+      setLoadError(error instanceof Error ? error.message : "Negotiation could not start");
+    }
   };
 
-  const handleAccept = (vendorKey: string) => {
-    setAcceptedVendor(vendorKey);
-    setTimeout(() => {
-      router.push(`/report/${id}?vendor=${vendorKey}`);
-    }, 700);
-  };
-
-  const handleReject = (vendorKey: string) => {
-    setRejectedVendors(prev => new Set(prev).add(vendorKey));
-  };
-
-  const getDoorPhase = (key: string): DoorPhase => {
-    if (rejectedVendors.has(key)) return "declined";
-    if (acceptedVendor === key) return "open";
-    const callStep = key === "A" ? 2 : key === "B" ? 3 : 4;
-    if (step < callStep) return "idle";
-    if (step === callStep || (key === "C" && step === 5 && isNegotiating)) return "trying";
-    return "open";
-  };
-
-  const showA = step >= 2;
-  const showB = step >= 3;
-  const showC = step >= 4;
-
-  const getEffectivePrice = (s: typeof SPECIALISTS[0]) => {
-    if (s.key === "C" && negotiated) return 145;
-    return s.priceRaw;
-  };
-
-  const isUnderBudget = (s: typeof SPECIALISTS[0]) => {
-    const price = getEffectivePrice(s);
-    return price !== null && price <= MAX_BUDGET;
-  };
-
-  const vendors = [
-    { spec: SPECIALISTS[0], visible: showA },
-    { spec: SPECIALISTS[1], visible: showB },
-    { spec: SPECIALISTS[2], visible: showC },
-  ];
+  if (!mission) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fbfaf7] px-6 text-center">
+        <div>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-black/10 border-t-black" />
+          <p className="font-medium">Loading the stored mission state...</p>
+          {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#f7f5f0] text-[#111111] font-sans pb-24">
-      <nav className="flex items-center justify-between px-8 py-5 max-w-5xl mx-auto border-b border-black/5">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
-          <div className="w-6 h-6 bg-[#111111] rounded flex items-center justify-center">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              <circle cx="7.5" cy="15.5" r="2" fill="white" />
-            </svg>
-          </div>
+    <div className="min-h-screen bg-[#fbfaf7] pb-24 text-[#111111]">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between border-b border-black/5 px-6 py-5">
+        <button className="flex items-center gap-2" onClick={() => router.push("/")}>
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-black text-sm text-white">⌁</span>
           <span className="font-bold tracking-tight">Keywize</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-400">Mission #{id.slice(-6)}</span>
-          {step < 6 && (
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#B87333] opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#B87333]" />
-            </span>
-          )}
+        </button>
+        <div className="text-right">
+          <p className="text-xs font-medium text-gray-400">Mission {id.slice(0, 8)}</p>
+          <p className="text-sm font-semibold">{humanize(mission.status)}</p>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto mt-8 px-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-        {/* RIGHT on mobile: vendor cards first so they're immediately visible */}
-        <div className="lg:col-span-2 lg:order-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
-              Specialists ({vendors.filter(v => v.visible).length}/3 contacted)
-            </h2>
-            {isNegotiating && (
-              <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-100 px-3 py-1 rounded-[8px] flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping" />
-                AI negotiating…
-              </span>
-            )}
+      <header className="mx-auto max-w-6xl px-6 pb-8 pt-10">
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <span
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold ${
+              mission.mode === "live_sandbox"
+                ? "border-pink-200 bg-pink-50 text-pink-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {modeLabel(mission)}
+          </span>
+          <span className="rounded-full bg-black px-3 py-1.5 text-xs font-bold text-white">
+            {humanize(mission.status)}
+          </span>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-gray-400">
+              Evidence-backed vendor mission
+            </p>
+            <h1 className="max-w-3xl font-serif text-4xl leading-tight tracking-tight sm:text-5xl">
+              Three clear quotes. One safe decision under pressure.
+            </h1>
           </div>
+          <div className="rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm">
+            <p className="text-xs text-gray-500">Hard maximum</p>
+            <p className="font-serif text-3xl font-bold">${mission.jobSpec.maxPrice}</p>
+          </div>
+        </div>
+      </header>
 
-          {/* Door scene */}
-          {step >= 1 && (
-            <VendorDoorsScene
-              vendors={[
-                { key: "A", name: "Marcus Webb", phase: getDoorPhase("A") },
-                { key: "B", name: "Daniel Reyes", phase: getDoorPhase("B") },
-                { key: "C", name: "Alex Petrov",  phase: getDoorPhase("C") },
-              ]}
+      <main className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[340px_1fr]">
+        <aside className="space-y-5">
+          {mission.mode === "live_sandbox" && (
+            <LiveSandboxPanel
+              calls={quoteCalls}
+              telephony={mission.liveSandboxTelephony}
             />
           )}
 
-          {vendors.map(({ spec: s, visible }) => {
-            if (!visible) return null;
-            const rejected = rejectedVendors.has(s.key);
-            const under = isUnderBudget(s);
-            const effectivePrice = getEffectivePrice(s);
-            const isNegVendor = s.key === "C";
-            const negotiatedNow = isNegVendor && negotiated;
-
-            return (
-              <div
-                key={s.key}
-                className={`bg-white rounded-[18px] border shadow-sm transition-all overflow-hidden ${
-                  rejected
-                    ? "opacity-40 border-gray-200"
-                    : s.risk === "High"
-                    ? "border-pink-100"
-                    : s.risk === "Low"
-                    ? "border-green-100"
-                    : "border-black/8"
-                }`}
-              >
-                <div className="p-4 sm:p-5">
-                  {/* Header row */}
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-serif font-bold border-2 shrink-0 ${
-                        s.risk === "High" ? "bg-pink-50 border-pink-200 text-pink-700" :
-                        s.risk === "Low" ? "bg-green-50 border-green-200 text-green-700" :
-                        "bg-[#f7f5f0] border-gray-200 text-gray-700"
-                      }`}>
-                        {s.firstName[0]}{s.lastName[0]}
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm">{s.firstName} {s.lastName}</div>
-                        <div className="text-xs text-gray-400">{s.company}</div>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {negotiatedNow ? (
-                        <div className="flex flex-col items-end gap-0.5">
-                          <div className="text-xs text-gray-400 line-through">${s.priceRaw}</div>
-                          <div className="text-xl font-serif font-bold text-[#30a985]">${effectivePrice}</div>
-                          <div className="text-xs text-gray-400">{s.eta} ETA</div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-end gap-0.5">
-                          <div className={`text-xl font-serif font-bold ${
-                            under ? "text-[#30a985]" :
-                            s.alwaysOverBudget ? "text-pink-500" : "text-[#111111]"
-                          }`}>
-                            {s.price}
-                          </div>
-                          <div className="text-xs text-gray-400">{s.eta} ETA</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Negotiation savings banner */}
-                  {negotiatedNow && s.priceRaw !== null && effectivePrice !== null && (
-                    <div className="mb-3 bg-[#30a985]/8 border border-[#30a985]/20 rounded-[12px] px-3 py-2.5 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-gray-400 line-through text-xs">${s.priceRaw}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#30a985" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                        <span className="font-bold text-[#111111]">${effectivePrice}</span>
-                        <span className="ml-1 px-2 py-0.5 bg-[#30a985] text-white text-xs font-bold rounded-[6px]">
-                          Save ${s.priceRaw - effectivePrice}
-                        </span>
-                      </div>
-                      <span className="text-xs font-semibold text-[#1a7a5a] shrink-0">AI negotiated ✓</span>
-                    </div>
-                  )}
-
-                  {/* Budget indicator */}
-                  {!s.alwaysOverBudget && effectivePrice !== null && (
-                    <div className={`text-xs font-semibold px-2.5 py-0.5 rounded-[8px] inline-block mb-3 ${
-                      under
-                        ? "bg-[#30a985]/10 text-[#1a7a5a]"
-                        : "bg-pink-50 text-pink-600"
-                    }`}>
-                      {under ? `✓ Within $${MAX_BUDGET} budget` : `⚠ Over $${MAX_BUDGET} budget`}
-                    </div>
-                  )}
-                  {s.alwaysOverBudget && (
-                    <div className="text-xs font-semibold px-2.5 py-0.5 rounded-[8px] inline-block mb-3 bg-pink-50 text-pink-600">
-                      ✗ Refused to confirm total
-                    </div>
-                  )}
-
-                  {/* VoiceTrust + transcript */}
-                  <div className={`p-3 rounded-[14px] mb-3 border ${
-                    s.risk === "High" ? "bg-pink-50 border-pink-100" :
-                    s.risk === "Low" ? "bg-green-50 border-green-100" :
-                    "bg-[#f7f5f0] border-gray-200"
-                  }`}>
-                    <div className="flex items-center gap-3 mb-2">
-                      {s.risk === "High" && (
-                        <span className="text-xs font-bold text-pink-700 uppercase tracking-wide">High risk</span>
-                      )}
-                    </div>
-                    {isNegotiating && isNegVendor && (
-                      <p className="text-sm italic text-purple-800 mb-2">
-                        &ldquo;I have a confirmed quote at $130 all-in. Can you match it or include two keys?&rdquo;
-                      </p>
-                    )}
-                    {!(isNegotiating && isNegVendor) && (
-                      <p className="text-sm italic text-gray-600">{s.quote}</p>
-                    )}
-                    <div className="mt-2">
-                      <ConfidenceWaveform score={s.trustScore} />
-                    </div>
-                  </div>
-
-                  {/* Tags */}
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {s.tags.map((t, i) => (
-                      <TagChip key={t} label={negotiatedNow && s.key === "C" && i === 0 ? "✓ $145 all-in confirmed" : t} color={negotiatedNow && s.key === "C" && i === 0 ? "green" : s.tagColors[i] ?? "gray"} />
-                    ))}
-                    {negotiatedNow && (
-                      <TagChip label="No-drill first" color="blue" />
-                    )}
-                    <TagChip label={`Risk: ${s.riskScore}/100`} color={s.riskScore >= 70 ? "pink" : s.riskScore <= 20 ? "green" : "yellow"} />
-                  </div>
-
-                  {/* Action buttons */}
-                  {!rejected && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleAccept(s.key)}
-                        disabled={s.alwaysOverBudget}
-                        className={`flex-1 py-2.5 rounded-[12px] font-semibold text-sm transition-all active:scale-[0.97] ${
-                          s.alwaysOverBudget
-                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                            : "bg-[#111111] text-white hover:bg-gray-800 shadow-sm"
-                        }`}
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => handleNegotiate(s.key)}
-                        disabled={!s.negotiable || isNegotiating || negotiated}
-                        className={`flex-1 py-2.5 rounded-[12px] font-semibold text-sm border transition-all active:scale-[0.97] ${
-                          !s.negotiable || negotiated
-                            ? "border-gray-200 text-gray-300 cursor-not-allowed"
-                            : isNegotiating
-                            ? "border-purple-200 text-purple-500 animate-pulse"
-                            : "border-[#111111] text-[#111111] hover:bg-gray-50"
-                        }`}
-                      >
-                        {isNegotiating && isNegVendor ? "Negotiating…" : negotiatedNow ? "✓ Negotiated" : "Negotiate"}
-                      </button>
-                      <button
-                        onClick={() => handleReject(s.key)}
-                        className="flex-1 py-2.5 rounded-[12px] font-semibold text-sm border border-pink-100 text-pink-600 hover:bg-pink-50 transition-all active:scale-[0.97]"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  )}
-
-                  {rejected && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">Rejected</span>
-                      <button
-                        onClick={() => setRejectedVendors(prev => { const s2 = new Set(prev); s2.delete(s.key); return s2; })}
-                        className="text-xs text-gray-400 underline hover:text-gray-600"
-                      >
-                        Undo
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {step >= 6 && (
-            <div className="bg-[#30a985]/10 border border-[#30a985]/20 rounded-[14px] p-4 flex items-center gap-3">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#30a985" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <p className="text-sm font-semibold text-[#1a7a5a]">Negotiation complete. Accept a specialist above to book your service.</p>
+          {mission.fallbackReason && (
+            <div className="rounded-3xl border border-pink-200 bg-pink-50 p-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-pink-700">Visible fallback</p>
+              <p className="mt-2 text-sm leading-relaxed text-pink-900">{mission.fallbackReason}</p>
+              <p className="mt-2 text-xs font-semibold text-pink-800">
+                Disclosed reliable persona replay is now filling only missing demo results.
+              </p>
+              <p className="mt-1 text-xs text-pink-700">No arbitrary business or phone number was dialed.</p>
             </div>
           )}
-        </div>
 
-        {/* LEFT sidebar: progress + job spec */}
-        <div className="lg:col-span-1 lg:order-1 space-y-4">
-          <div className="bg-white p-5 rounded-[18px] shadow-sm border border-black/5">
-            <h2 className="text-base font-serif font-semibold mb-3">Live progress</h2>
-            <div className="space-y-2.5">
-              {STEPS.map((s, i) => {
-                const done = i < step;
-                const active = i === step;
-                return (
-                  <div key={i} className="flex items-center gap-3 text-sm">
-                    <div className={`w-2 h-2 rounded-full shrink-0 transition-all ${done ? "bg-[#B87333]" : active ? "bg-[#B87333] animate-pulse scale-125" : "bg-gray-200"}`} />
-                    <span className={done ? "text-gray-400" : active ? "font-semibold text-black" : "text-gray-300"}>
-                      {s}
-                    </span>
+          <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+            <h2 className="font-serif text-lg font-semibold">Job spec</h2>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Issue</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.caseType)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Door</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.doorType)} · {humanize(mission.jobSpec.lockType)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Area</dt><dd className="text-right font-semibold">{mission.jobSpec.locationCity}, {mission.jobSpec.locationZip}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Urgency</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.urgency)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-black/5 pt-3"><dt className="text-gray-500">Ideal / maximum</dt><dd className="font-semibold">${mission.jobSpec.idealPrice} / ${mission.jobSpec.maxPrice}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Authorization</dt><dd className="font-semibold text-emerald-700">Confirmed</dd></div>
+            </dl>
+            <p className="mt-4 rounded-xl bg-[#f8f7f3] p-3 text-xs leading-relaxed text-gray-600">
+              Proof of residence or authorization must be shown before entry. No dispatch is authorized by this mission.
+            </p>
+          </section>
+
+          <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+            <h2 className="font-serif text-lg font-semibold">Call state</h2>
+            <div className="mt-4">
+              <VendorCallProgress calls={callProgressCalls} />
+            </div>
+            <div className="mt-5 space-y-4">
+              {mission.vendorCalls.map((call) => (
+                <div key={call.id} className="flex items-center gap-3">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      call.status === "complete"
+                        ? "bg-emerald-500"
+                        : call.status === "failed" || call.status === "replay_fallback"
+                          ? "bg-pink-400"
+                          : call.status === "queued"
+                            ? "bg-gray-200"
+                            : "animate-pulse bg-amber-400"
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{call.role === "closer" ? "Closer · " : ""}{displayVendorName(call.vendorId, call.vendorName)}</p>
+                    <p className="text-xs text-gray-500">
+                      {STATUS_LABELS[call.status]}{call.fallbackUsed ? " · simulated fallback" : ""}
+                    </p>
                   </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {loadError && <p className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{loadError}</p>}
+
+          {(quotesReady || mission.status === "negotiating" || reportReady) && (
+            <div className="space-y-3">
+              <Link
+                href={`/mission/${mission.id}/prices`}
+                className="block w-full rounded-full border border-black bg-white px-5 py-4 text-center font-semibold"
+              >
+                Compare stored quotes →
+              </Link>
+              <button
+                onClick={negotiateFastest}
+                disabled={!quotesReady || isNegotiating}
+                className="w-full rounded-full bg-black px-5 py-4 font-semibold text-white shadow-lg shadow-black/10 transition-transform enabled:hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-gray-300"
+              >
+                {mission.status === "negotiating" || isNegotiating
+                  ? "Negotiating fastest option..."
+                  : reportReady
+                    ? "Terms secured"
+                    : "Negotiate fastest option"}
+              </button>
+              {reportReady && (
+                <button
+                  onClick={() => router.push(`/report/${mission.id}`)}
+                  className="w-full rounded-full border border-black bg-white px-5 py-4 font-semibold"
+                >
+                  View stored final report →
+                </button>
+              )}
+            </div>
+          )}
+        </aside>
+
+        <div className="space-y-6">
+          <section>
+            <div className="mb-4 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">Structured results</p>
+                <h2 className="font-serif text-2xl font-semibold">Vendor quotes</h2>
+              </div>
+              <div className="text-right">
+                <span className="block text-sm font-semibold text-gray-500">
+                  {mission.quotes.filter((quote) => quote.vendorId !== HIDDEN_VENDOR_ID).length}/2 stored
+                </span>
+                {mission.quotes.length > 0 && (
+                  <Link href={`/mission/${mission.id}/prices`} className="mt-1 block text-xs font-bold text-[#25866b] hover:text-black">
+                    Full comparison →
+                  </Link>
+                )}
+              </div>
+            </div>
+            <div className="space-y-5">
+              {visibleQuoteCalls.map((call) => {
+                const quote = quoteByVendor.get(call.vendorId);
+                if (!quote) {
+                  return (
+                    <div key={call.id} className="rounded-[28px] border border-dashed border-black/10 bg-white/60 p-6">
+                      <div className="flex items-center gap-3">
+                        <span className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
+                        <div>
+                          <p className="font-semibold">{call.vendorName}</p>
+                          <p className="text-sm text-gray-500">Waiting for a persisted quote...</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                const href =
+                  call.vendorId === "vendor_b"
+                    ? `/mission/${mission.id}/prices`
+                    : call.vendorId === "vendor_c"
+                      ? `/mission/${mission.id}/negotiate`
+                      : undefined;
+                return (
+                  <QuoteCard
+                    key={quote.id}
+                    quote={quote}
+                    isFastest={quote.etaMinutes === fastestEta}
+                    titleOverride={call.vendorId === "vendor_b" ? "Basic price" : undefined}
+                    href={href}
+                    linkLabel={call.vendorId === "vendor_c" ? "View negotiated offers →" : undefined}
+                  />
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          <div className="bg-white p-5 rounded-[18px] shadow-sm border border-black/5">
-            <h2 className="text-base font-serif font-semibold mb-3">Job spec</h2>
-            <ul className="space-y-2 text-sm">
-              <li className="flex justify-between"><span className="text-gray-400">Issue</span><span className="font-medium">Broken key</span></li>
-              <li className="flex justify-between"><span className="text-gray-400">Door</span><span className="font-medium">Main entry · Deadbolt</span></li>
-              <li className="flex justify-between"><span className="text-gray-400">Location</span><span className="font-medium">SF, 94109</span></li>
-              <li className="flex justify-between"><span className="text-gray-400">Urgency</span><span className="font-medium">Right now</span></li>
-              <li className="flex justify-between border-t border-gray-100 pt-2 mt-2">
-                <span className="text-gray-400">Ideal</span><span className="font-medium">$80</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-pink-500 font-medium">Max budget</span>
-                <span className="font-bold text-pink-600">${MAX_BUDGET}</span>
-              </li>
-            </ul>
-          </div>
+          {mission.negotiation && (
+            <section className="rounded-[28px] border border-purple-100 bg-purple-50 p-6">
+              <div className="mb-4 flex justify-end">
+                <Link href={`/mission/${mission.id}/negotiate`} className="text-xs font-bold text-purple-700 hover:text-black">
+                  Open negotiation window →
+                </Link>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-purple-600">Stored leverage</p>
+                  <h2 className="mt-1 font-serif text-2xl font-semibold">Vendor B → Vendor C</h2>
+                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-purple-900">
+                    {mission.negotiation.leverage.vendorName} confirmed ${mission.negotiation.leverage.total} all-in with no-drill-first. That stored quote is the only competitor claim used.
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white px-5 py-3 text-right shadow-sm">
+                  <p className="text-xs text-gray-500">Fast option</p>
+                  <p className="font-serif text-2xl font-bold">
+                    <span className="text-gray-400 line-through">${mission.negotiation.beforePrice}</span>
+                    <span className="ml-2 text-emerald-600">{mission.negotiation.afterPrice ? `$${mission.negotiation.afterPrice}` : "In progress"}</span>
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-serif text-xl font-semibold">Ordered mission events</h2>
+              <span className="text-xs text-gray-400">Persisted state</span>
+            </div>
+            <div className="mt-5 space-y-4">
+              {mission.callLog.slice().reverse().map((event) => (
+                <div key={event.id} className="flex gap-3 border-b border-black/5 pb-4 last:border-0 last:pb-0">
+                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${event.category === "fallback" ? "bg-pink-400" : event.category === "tool" ? "bg-purple-400" : "bg-emerald-400"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{humanize(event.event)}</p>
+                      {event.toolName && (
+                        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-purple-700">
+                          {humanize(event.toolName)}
+                        </span>
+                      )}
+                      {event.source === "fallback" && (
+                        <span className="rounded-full bg-pink-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pink-700">Replay fallback</span>
+                      )}
+                    </div>
+                    {event.details && <p className="mt-1 text-xs leading-relaxed text-gray-500">{event.details}</p>}
+                  </div>
+                  <time className="shrink-0 text-[10px] text-gray-400">
+                    {new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </time>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </main>
     </div>
