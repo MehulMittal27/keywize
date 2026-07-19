@@ -44,64 +44,67 @@ const TOOL_DESCRIPTIONS = {
   update_negotiation: "Track negotiated price or terms using only stored competing quotes as leverage.",
 };
 
-const TOOL_PAYLOAD_FIELDS = {
+const TOOL_PARAMETER_FIELDS = {
   create_job_spec: [
-    "caseType",
-    "urgency",
-    "propertyType",
-    "doorType",
-    "lockType",
-    "doorOpen",
-    "keyStolen",
-    "brokenKeyVisible",
-    "needRekey",
-    "newKeysNeeded",
-    "idealPrice",
-    "maxPrice",
-    "authorizationConfirmed",
-    "locationCity",
-    "locationZip",
+    { name: "caseType", type: "string", required: true },
+    { name: "urgency", type: "string", required: true },
+    { name: "propertyType", type: "string", required: true },
+    { name: "doorType", type: "string", required: true },
+    { name: "lockType", type: "string", required: true },
+    { name: "doorOpen", type: "boolean", required: true },
+    { name: "keyStolen", type: "boolean", required: true },
+    { name: "brokenKeyVisible", type: "boolean", required: true },
+    { name: "needRekey", type: "boolean", required: true },
+    { name: "newKeysNeeded", type: "number", required: true },
+    { name: "idealPrice", type: "number", required: true },
+    { name: "maxPrice", type: "number", required: true },
+    { name: "authorizationConfirmed", type: "boolean", required: true },
+    { name: "locationCity", type: "string", required: true },
+    { name: "locationZip", type: "string", required: true },
   ],
   save_quote: [
-    "vendorName",
-    "phone",
-    "etaMinutes",
-    "dispatchFee",
-    "laborFee",
-    "partsFee",
-    "afterHoursFee",
-    "taxesAndOther",
-    "totalEstimate",
-    "isTotalAllIn",
-    "drillingPolicy",
-    "idRequired",
-    "oldKeyDisabled",
-    "keysIncluded",
-    "warranty",
-    "quoteConfidence",
-    "redFlags",
-    "transcriptEvidence",
-    "transcript",
+    { name: "vendorName", type: "string", required: true },
+    { name: "phone", type: "string", required: true },
+    { name: "etaMinutes", type: "number", required: true },
+    { name: "dispatchFee", type: "number", required: true },
+    { name: "laborFee", type: "number", required: true },
+    { name: "partsFee", type: "number", required: true },
+    { name: "afterHoursFee", type: "number", required: true },
+    { name: "taxesAndOther", type: "number", required: true },
+    { name: "totalEstimate", type: "number", required: true },
+    { name: "isTotalAllIn", type: "boolean", required: true },
+    { name: "drillingPolicy", type: "string", required: true },
+    { name: "idRequired", type: "boolean", required: true },
+    { name: "oldKeyDisabled", type: "boolean", required: false },
+    { name: "keysIncluded", type: "number", required: true },
+    { name: "warranty", type: "string", required: false },
+    { name: "quoteConfidence", type: "string", required: true },
+    { name: "redFlags", type: "string", required: false },
+    { name: "transcriptEvidence", type: "string", required: true },
+    { name: "transcript", type: "string", required: true },
   ],
   analyze_voice_trust: [
-    "questionType",
-    "vendorText",
-    "pauseMs",
-    "fillerWords",
-    "evasivePhrases",
-    "speechRateChangePct",
-    "pitchVariance",
-    "volumeVariance",
+    { name: "questionType", type: "string", required: true },
+    { name: "vendorText", type: "string", required: true },
+    { name: "pauseMs", type: "number", required: true },
+    { name: "fillerWords", type: "string", required: false },
+    { name: "evasivePhrases", type: "string", required: false },
+    { name: "speechRateChangePct", type: "number", required: false },
+    { name: "pitchVariance", type: "number", required: false },
+    { name: "volumeVariance", type: "number", required: false },
   ],
-  classify_vendor_tone: ["vendorLatestMessage", "conversationContext"],
+  classify_vendor_tone: [
+    { name: "vendorLatestMessage", type: "string", required: true },
+    { name: "conversationContext", type: "string", required: true },
+  ],
   update_negotiation: [
-    "vendorName",
-    "beforePrice",
-    "afterPrice",
-    "termsChanged",
-    "leverageUsed",
-    "transcriptEvidence",
-    "priceOrTermsChanged",
+    { name: "vendorName", type: "string", required: true },
+    { name: "beforePrice", type: "number", required: true },
+    { name: "afterPrice", type: "number", required: true },
+    { name: "termsChanged", type: "string", required: true },
+    { name: "leverageUsed", type: "string", required: true },
+    { name: "transcriptEvidence", type: "string", required: true },
+    { name: "priceOrTermsChanged", type: "boolean", required: true },
   ],
 };
 
@@ -177,18 +180,39 @@ function ensureTrailingSlash(url) {
   return url.endsWith("/") ? url : `${url}/`;
 }
 
-function buildPayloadDescription(toolName) {
-  const fields = TOOL_PAYLOAD_FIELDS[toolName];
+function buildParametersSchema(toolName) {
+  const fields = TOOL_PARAMETER_FIELDS[toolName];
 
   if (!fields) {
-    return "Send a JSON string containing the full structured payload for this Keywize tool.";
+    throw new Error(`Unknown ElevenLabs tool name: ${toolName}`);
   }
 
-  return [
-    "Send a JSON string containing one object with the full structured payload for this Keywize tool.",
-    `The JSON string must include these fields when available: ${fields.join(", ")}.`,
-    "Use null for unknown optional values instead of omitting relevant fields.",
-  ].join(" ");
+  return {
+    type: "object",
+    description: "Tool-specific JSON parameters collected by the agent.",
+    properties: Object.fromEntries(
+      fields.map((field) => [
+        field.name,
+        {
+          type: field.type,
+          description: buildParameterDescription(toolName, field.name),
+        },
+      ]),
+    ),
+    required: fields.filter((field) => field.required).map((field) => field.name),
+  };
+}
+
+function buildParameterDescription(toolName, fieldName) {
+  const stringListHints = {
+    redFlags: "Comma-separated red flags if any; leave empty or omit if none.",
+    transcriptEvidence: "Comma-separated transcript evidence snippets supporting this tool call.",
+    fillerWords: "Comma-separated filler words heard in the answer, if any.",
+    evasivePhrases: "Comma-separated evasive phrases heard in the answer, if any.",
+    leverageUsed: "Comma-separated stored quote facts used as negotiation leverage.",
+  };
+
+  return stringListHints[fieldName] ?? `${toolName} parameter ${fieldName}.`;
 }
 
 function buildRequestBodySchema(toolName) {
@@ -204,16 +228,13 @@ function buildRequestBodySchema(toolName) {
     type: "object",
     description: "JSON body sent by the ElevenLabs webhook tool to Keywize.",
     properties: {
-      tool: {
+      tool_name: {
         type: "string",
         constant_value: toolName,
       },
-      payload: {
-        type: "string",
-        description: buildPayloadDescription(toolName),
-      },
+      parameters: buildParametersSchema(toolName),
     },
-    required: ["tool", "payload"],
+    required: ["tool_name", "parameters"],
   };
 }
 
@@ -258,7 +279,7 @@ function validateElevenLabsToolSchema(payloads) {
       }
 
       assertNoUnsupportedSchemaKeys(schema, `${name}.${tool.name}.request_body_schema`);
-      assertToolBodySchemaIsVisible(schema, `${name}.${tool.name}.request_body_schema`);
+      assertToolBodySchemaIsVisible(schema, tool.name, `${name}.${tool.name}.request_body_schema`);
       assertToolBodyPropertySources(schema, `${name}.${tool.name}.request_body_schema`);
     }
   }
@@ -278,31 +299,74 @@ function assertNoUnsupportedSchemaKeys(value, pathLabel) {
   }
 }
 
-function assertToolBodySchemaIsVisible(schema, pathLabel) {
+function assertToolBodySchemaIsVisible(schema, toolName, pathLabel) {
   const propertyNames = Object.keys(schema.properties ?? {});
 
   if (schema.type !== "object" || !schema.properties || typeof schema.properties !== "object") {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} must be an object with properties.`);
   }
 
-  if (propertyNames.join(",") !== "tool,payload") {
+  if (propertyNames.join(",") !== "tool_name,parameters") {
     throw new Error(
-      `ElevenLabs tool schema at ${pathLabel} must expose exactly these body parameters in order: tool, payload. Found: ${propertyNames.join(", ")}.`,
+      `ElevenLabs tool schema at ${pathLabel} must expose exactly these body parameters in order: tool_name, parameters. Found: ${propertyNames.join(", ")}.`,
     );
   }
 
   for (const propertyName of propertyNames) {
     const propertySchema = schema.properties[propertyName];
 
-    if (!propertySchema || propertySchema.type !== "string") {
+    if (propertyName === "tool_name" && (!propertySchema || propertySchema.type !== "string")) {
       throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.${propertyName} must be a string literal schema node.`);
+    }
+
+    if (propertyName === "parameters" && (!propertySchema || propertySchema.type !== "object")) {
+      throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.${propertyName} must be an object schema node.`);
     }
   }
 
-  const missingRequired = ["tool", "payload"].filter((propertyName) => !schema.required?.includes(propertyName));
+  if (schema.properties.tool_name.constant_value !== toolName) {
+    throw new Error(`ElevenLabs tool schema at ${pathLabel} must set tool_name.constant_value to ${toolName}.`);
+  }
+
+  const missingRequired = ["tool_name", "parameters"].filter((propertyName) => !schema.required?.includes(propertyName));
 
   if (missingRequired.length > 0) {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} is missing required body parameter(s): ${missingRequired.join(", ")}.`);
+  }
+
+  assertParametersSchemaMatchesTool(schema.properties.parameters, toolName, `${pathLabel}.properties.parameters`);
+}
+
+function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel) {
+  const fields = TOOL_PARAMETER_FIELDS[toolName];
+  const propertyNames = Object.keys(parametersSchema.properties ?? {});
+  const expectedPropertyNames = fields.map((field) => field.name);
+
+  if (parametersSchema.description !== "Tool-specific JSON parameters collected by the agent.") {
+    throw new Error(`ElevenLabs tool schema at ${pathLabel} has an invalid parameters description.`);
+  }
+
+  if (propertyNames.join(",") !== expectedPropertyNames.join(",")) {
+    throw new Error(
+      `ElevenLabs tool schema at ${pathLabel} has wrong parameters. Found: ${propertyNames.join(", ")}.`,
+    );
+  }
+
+  const required = parametersSchema.required ?? [];
+  const expectedRequired = fields.filter((field) => field.required).map((field) => field.name);
+
+  if (required.join(",") !== expectedRequired.join(",")) {
+    throw new Error(
+      `ElevenLabs tool schema at ${pathLabel} has wrong required parameters. Found: ${required.join(", ")}.`,
+    );
+  }
+
+  for (const field of fields) {
+    const propertySchema = parametersSchema.properties[field.name];
+
+    if (!propertySchema || propertySchema.type !== field.type) {
+      throw new Error(`ElevenLabs tool schema at ${pathLabel}.properties.${field.name} must be type ${field.type}.`);
+    }
   }
 }
 
@@ -502,7 +566,7 @@ async function main() {
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
     console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
     console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
-    console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool and payload.");
+    console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool_name and parameters.");
     console.log(`Tool split:\n${toolSummary}`);
     console.log("No agents were created and the env file was not updated.");
     return;
