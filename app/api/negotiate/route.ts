@@ -3,6 +3,7 @@ import { addMissionEvent } from "@/lib/missionEvents";
 import { selectStoredLeverage } from "@/lib/leverage";
 import { startLiveSandboxNegotiation } from "@/lib/liveSandbox";
 import { getMission, setMission } from "@/lib/store";
+import { toPublicMission } from "@/lib/publicMission";
 import type { VendorCall } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
   setMission(mission);
 
   return NextResponse.json({
-    mission,
+    mission: toPublicMission(mission),
     negotiationStarted: true,
     targetQuoteId: target.id,
     leverageQuoteId: leverage.sourceQuoteId,

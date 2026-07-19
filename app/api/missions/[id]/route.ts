@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMission, setMission } from "@/lib/store";
+import { toPublicMission } from "@/lib/publicMission";
 import { advanceMissionOrchestration } from "@/lib/demoOrchestrator";
 import {
   advanceLiveSandboxCallerCalls,
@@ -24,7 +25,7 @@ export async function GET(
     setMission(mission);
   }
 
-  return NextResponse.json(mission, {
+  return NextResponse.json(toPublicMission(mission), {
     headers: { "Cache-Control": "no-store" },
   });
 }

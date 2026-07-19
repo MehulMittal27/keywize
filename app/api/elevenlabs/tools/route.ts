@@ -9,6 +9,7 @@ import {
 } from "@/lib/liveSandbox";
 import {
   ensureLiveSandboxDiagnostics,
+  markLiveSandboxPhoneAnswered,
   markLiveSandboxQuoteSaved,
   markLiveSandboxToolReceived,
   markLiveSandboxToolRejected,
@@ -178,11 +179,12 @@ function recordLiveToolReceived(
   markLiveSandboxToolReceived(call);
   if (previous === "received" || previous === "quote_saved") return;
   addMissionEvent(mission, {
-    event: `${toolName}_webhook_received`,
+    event: "tool_called",
     details: `${toolName} reached Keywize for ${liveSandboxVendorLabel(call.vendorId)}. Validating correlation and required fields.`,
     vendorId: call.vendorId,
     category: "tool",
     source: "live_sandbox",
+    toolName,
   });
 }
 
@@ -316,6 +318,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: context.error }, { status: 422 });
       }
 
+      if (context.call) {
+        markLiveSandboxPhoneAnswered(context.call, "correlated_tool_webhook");
+      }
+
       const invalidFields = invalidSaveQuoteFields(params);
       if (invalidFields.length > 0) {
         const reason = `missing or invalid fields: ${invalidFields.join(", ")}`;
@@ -377,7 +383,7 @@ export async function POST(request: NextRequest) {
       const call = context.call;
       if (call) {
         call.quoteId = quote.id;
-        call.status = "complete";
+        call.status = mission.mode === "live_sandbox" ? "quote_saved" : "complete";
         call.completedAt = new Date().toISOString();
         markLiveSandboxQuoteSaved(call);
       }
@@ -495,6 +501,10 @@ export async function POST(request: NextRequest) {
         setMission(mission);
         return NextResponse.json({ error: context.error }, { status: 422 });
       }
+      if (context.call) {
+        markLiveSandboxPhoneAnswered(context.call, "correlated_tool_webhook");
+      }
+
       const negotiation = mission.negotiation;
       if (!negotiation || !leverageStillMatchesMission(mission, negotiation.leverage)) {
         return NextResponse.json(

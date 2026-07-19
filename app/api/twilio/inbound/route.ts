@@ -3,16 +3,10 @@ import { NextResponse } from "next/server";
 /**
  * POST /api/twilio/inbound
  *
- * Twilio webhook for inbound calls to the Keywize phone number.
- * Returns TwiML that connects the caller to the ElevenLabs intake agent.
- *
- * To connect a real call:
- *   1. Buy a Twilio number (see docs/TWILIO_SETUP.md)
- *   2. Set the Voice webhook URL to: https://your-domain.com/api/twilio/inbound
- *   3. Configure the ElevenLabs agent phone number ID to your Twilio number
- *
- * Current behavior: greets the caller and shows a placeholder for
- * the ElevenLabs media stream connection.
+ * Twilio webhook stub for customer-inbound calls to Keywize.
+ * Current behavior is two static messages followed by disconnect; it does not
+ * connect an ElevenLabs agent. Never use this route as a live sandbox vendor
+ * destination. See docs/TWILIO_SETUP.md for that provider boundary.
  */
 export async function POST() {
   // TwiML response

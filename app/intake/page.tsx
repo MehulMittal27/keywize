@@ -45,7 +45,7 @@ function IntakePageContent() {
 
   const set = (key: string, value: unknown) => setForm(f => ({ ...f, [key]: value }));
 
-  // maxPrice must stay within [idealPrice, idealPrice * 100] — a budget
+  // maxPrice must stay within [idealPrice, idealPrice * 100] - a budget
   // below the ideal price leaves nothing to negotiate down to. The slider
   // clamps live (drag movements are discrete); the typed number box only
   // clamps on blur so a value like "111" can be typed digit by digit
@@ -445,6 +445,9 @@ function IntakePageContent() {
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-pink-900">
                     Calls run one at a time in A, B, C order. Answer each phone as the named vendor, use only the card below, and stay on until the Caller reads the quote back. If no one supplies these facts, the agent cannot save a quote.
+                  </p>
+                  <p className="mt-3 rounded-2xl bg-white/80 p-3 text-xs leading-relaxed text-pink-900">
+                    This mode launches through ElevenLabs&apos; linked Twilio integration, not Keywize&apos;s Twilio REST credentials. If the destination is a Twilio number, its inbound Voice webhook must run a controlled vendor persona. A default trial/demo prompt is not a vendor answer and can disconnect without saving a quote.
                   </p>
                   <ol className="mt-4 space-y-3">
                     {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {

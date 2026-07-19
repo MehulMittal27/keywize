@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createVendorCalls } from "@/lib/mockData";
 import { getMission, setMission } from "@/lib/store";
+import { toPublicMission } from "@/lib/publicMission";
 import { startMission } from "@/lib/missionService";
 import type { MissionMode } from "@/lib/types";
 
@@ -39,5 +40,5 @@ export async function POST(
   setMission(mission);
   await startMission(mission);
 
-  return NextResponse.json({ mission });
+  return NextResponse.json({ mission: toPublicMission(mission) });
 }

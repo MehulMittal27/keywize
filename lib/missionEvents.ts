@@ -1,4 +1,5 @@
 import type {
+  CallLogEntry,
   Mission,
   MissionEventCategory,
   MissionEventSource,
@@ -11,7 +12,7 @@ export type AddMissionEventInput = {
   vendorId?: VendorId;
   category: MissionEventCategory;
   source?: MissionEventSource;
-  toolName?: "quote_saved" | "uncertainty_analyzed" | "risk_recalculated" | "negotiation_persisted";
+  toolName?: NonNullable<CallLogEntry["toolName"]>;
 };
 
 export function addMissionEvent(mission: Mission, input: AddMissionEventInput): void {
