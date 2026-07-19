@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ElevenLabsIntakeVoice } from "@/components/ElevenLabsIntakeVoice";
+import { clampMaxPrice } from "@/lib/jobSpec";
 
 const CASES = [
   { id: "room_key_lost", label: "Lost room key" },
@@ -39,6 +40,18 @@ function IntakePageContent() {
   });
 
   const set = (key: string, value: unknown) => setForm(f => ({ ...f, [key]: value }));
+
+  // maxPrice must stay within [idealPrice, idealPrice * 100] — a budget
+  // below the ideal price leaves nothing to negotiate down to. The slider
+  // clamps live (drag movements are discrete); the typed number box only
+  // clamps on blur so a value like "111" can be typed digit by digit
+  // without the field fighting back mid-keystroke.
+  const setIdealPrice = (value: number) =>
+    setForm(f => ({ ...f, idealPrice: value, maxPrice: clampMaxPrice(value, f.maxPrice) }));
+  const setMaxPrice = (value: number) =>
+    setForm(f => ({ ...f, maxPrice: clampMaxPrice(f.idealPrice, value) }));
+  const commitIdealPrice = () => setIdealPrice(form.idealPrice);
+  const commitMaxPrice = () => setMaxPrice(form.maxPrice);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -256,11 +269,20 @@ function IntakePageContent() {
                       <label htmlFor="idealPrice" className="font-semibold text-sm">Ideal price</label>
                       <p className="text-xs text-gray-500">The amount you would prefer to pay.</p>
                     </div>
-                    <output htmlFor="idealPrice" className="shrink-0 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-[#30a985]">
-                      ${form.idealPrice}
-                    </output>
+                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5">
+                      <span className="text-sm font-bold text-[#30a985]">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        aria-label="Ideal price, exact amount"
+                        value={form.idealPrice}
+                        onChange={e => set("idealPrice", e.target.value === "" ? 0 : Number(e.target.value))}
+                        onBlur={commitIdealPrice}
+                        className="w-16 bg-transparent text-sm font-bold text-[#30a985] outline-none"
+                      />
+                    </div>
                   </div>
-                  <input id="idealPrice" name="idealPrice" type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => set("idealPrice", parseInt(e.target.value))} className="w-full accent-[#30a985]" />
+                  <input id="idealPrice" name="idealPrice" type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => setIdealPrice(parseInt(e.target.value))} className="w-full accent-[#30a985]" />
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-4">
@@ -268,11 +290,20 @@ function IntakePageContent() {
                       <label htmlFor="maxPrice" className="font-semibold text-sm">Absolute Max Budget</label>
                       <p className="text-xs text-gray-500">We will disqualify any vendor who refuses to cap their price under this amount.</p>
                     </div>
-                    <output htmlFor="maxPrice" className="shrink-0 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-pink-600">
-                      ${form.maxPrice}
-                    </output>
+                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5">
+                      <span className="text-sm font-bold text-pink-600">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        aria-label="Absolute max budget, exact amount"
+                        value={form.maxPrice}
+                        onChange={e => set("maxPrice", e.target.value === "" ? 0 : Number(e.target.value))}
+                        onBlur={commitMaxPrice}
+                        className="w-16 bg-transparent text-sm font-bold text-pink-600 outline-none"
+                      />
+                    </div>
                   </div>
-                  <input id="maxPrice" name="maxPrice" type="range" min="50" max="500" step="10" value={form.maxPrice} onChange={e => set("maxPrice", parseInt(e.target.value))} className="w-full accent-[#111111]" />
+                  <input id="maxPrice" name="maxPrice" type="range" min={form.idealPrice} max={form.idealPrice * 100} step="10" value={form.maxPrice} onChange={e => setMaxPrice(parseInt(e.target.value))} className="w-full accent-[#111111]" />
                 </div>
               </div>
 

@@ -22,29 +22,52 @@ function humanize(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+// Vendor A is the deliberately risky bait-and-switch persona. While a call to
+// it is still in flight we show a generic "searching" label and give it no
+// clickable quote window — its real identity and risk flag still surface on
+// the final report once quotes are in.
+const HIDDEN_VENDOR_ID = "vendor_a";
+const SEARCHING_LABEL = "Searching locksmiths nearby";
+
+function displayVendorName(vendorId: string, vendorName: string): string {
+  return vendorId === HIDDEN_VENDOR_ID ? SEARCHING_LABEL : vendorName;
+}
+
 function modeLabel(mission: Mission): string {
   if (mission.mode === "reliable_demo") return "Reliable Demo - simulated vendors";
   if (mission.fallbackReason) return "Live Sandbox - reliable replay fallback";
   return "Live Sandbox - controlled calls";
 }
 
-function QuoteCard({ quote, isFastest }: { quote: Quote; isFastest: boolean }) {
+function QuoteCard({
+  quote,
+  isFastest,
+  titleOverride,
+  href,
+  linkLabel = "View full comparison →",
+}: {
+  quote: Quote;
+  isFastest: boolean;
+  titleOverride?: string;
+  href?: string;
+  linkLabel?: string;
+}) {
   const signal = quote.voiceTrustSignals[0];
   const isHighRisk = quote.riskLevel === "High";
   const price = quote.totalEstimate === null
     ? `Starts at $${quote.dispatchFee ?? "?"}`
     : `$${quote.totalEstimate}`;
 
-  return (
-    <article
-      className={`relative overflow-hidden rounded-[28px] border bg-white p-6 shadow-sm transition-all ${
-        isHighRisk
-          ? "border-2 border-pink-200"
-          : isFastest
-            ? "border-2 border-black shadow-lg shadow-black/5"
-            : "border-black/5"
-      }`}
-    >
+  const className = `relative block overflow-hidden rounded-[28px] border bg-white p-6 shadow-sm transition-all ${
+    isHighRisk
+      ? "border-2 border-pink-200"
+      : isFastest
+        ? "border-2 border-black shadow-lg shadow-black/5"
+        : "border-black/5"
+  } ${href ? "cursor-pointer hover:shadow-md hover:border-[#30a985]/30" : ""}`;
+
+  const content = (
+    <>
       {isFastest && (
         <span className="absolute right-0 top-0 rounded-bl-xl bg-black px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
           Fastest ETA
@@ -53,7 +76,7 @@ function QuoteCard({ quote, isFastest }: { quote: Quote; isFastest: boolean }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-bold">{quote.vendorName}</h3>
+            <h3 className="text-lg font-bold">{titleOverride ?? quote.vendorName}</h3>
             <span
               className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
                 quote.riskLevel === "High"
@@ -116,8 +139,22 @@ function QuoteCard({ quote, isFastest }: { quote: Quote; isFastest: boolean }) {
           &ldquo;{quote.transcriptEvidence[0]}&rdquo;
         </blockquote>
       )}
-    </article>
+
+      {href && (
+        <p className="mt-4 text-xs font-semibold text-[#25866b]">{linkLabel}</p>
+      )}
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <article className={className}>{content}</article>;
 }
 
 export default function MissionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -166,6 +203,11 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
     null
   );
   const quoteCalls = mission?.vendorCalls.filter((call) => call.role === "caller") ?? [];
+  const visibleQuoteCalls = quoteCalls.filter((call) => call.vendorId !== HIDDEN_VENDOR_ID);
+  const callProgressCalls = quoteCalls.map((call) => ({
+    ...call,
+    vendorName: displayVendorName(call.vendorId, call.vendorName),
+  }));
   const reportReady = Boolean(
     mission && ["terms_secured", "awaiting_approval", "approved"].includes(mission.status)
   );
@@ -276,7 +318,7 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
           <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
             <h2 className="font-serif text-lg font-semibold">Call state</h2>
             <div className="mt-4">
-              <VendorCallProgress calls={quoteCalls} />
+              <VendorCallProgress calls={callProgressCalls} />
             </div>
             <div className="mt-5 space-y-4">
               {mission.vendorCalls.map((call) => (
@@ -293,7 +335,7 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
                     }`}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{call.role === "closer" ? "Closer · " : ""}{call.vendorName}</p>
+                    <p className="truncate text-sm font-semibold">{call.role === "closer" ? "Closer · " : ""}{displayVendorName(call.vendorId, call.vendorName)}</p>
                     <p className="text-xs text-gray-500">
                       {STATUS_LABELS[call.status]}{call.fallbackUsed ? " · simulated fallback" : ""}
                     </p>
@@ -344,7 +386,9 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
                 <h2 className="font-serif text-2xl font-semibold">Vendor quotes</h2>
               </div>
               <div className="text-right">
-                <span className="block text-sm font-semibold text-gray-500">{mission.quotes.length}/3 stored</span>
+                <span className="block text-sm font-semibold text-gray-500">
+                  {mission.quotes.filter((quote) => quote.vendorId !== HIDDEN_VENDOR_ID).length}/2 stored
+                </span>
                 {mission.quotes.length > 0 && (
                   <Link href={`/mission/${mission.id}/prices`} className="mt-1 block text-xs font-bold text-[#25866b] hover:text-black">
                     Full comparison →
@@ -353,7 +397,7 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
               </div>
             </div>
             <div className="space-y-5">
-              {quoteCalls.map((call) => {
+              {visibleQuoteCalls.map((call) => {
                 const quote = quoteByVendor.get(call.vendorId);
                 if (!quote) {
                   return (
@@ -368,7 +412,22 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
                     </div>
                   );
                 }
-                return <QuoteCard key={quote.id} quote={quote} isFastest={quote.etaMinutes === fastestEta} />;
+                const href =
+                  call.vendorId === "vendor_b"
+                    ? `/mission/${mission.id}/prices`
+                    : call.vendorId === "vendor_c"
+                      ? `/mission/${mission.id}/negotiate`
+                      : undefined;
+                return (
+                  <QuoteCard
+                    key={quote.id}
+                    quote={quote}
+                    isFastest={quote.etaMinutes === fastestEta}
+                    titleOverride={call.vendorId === "vendor_b" ? "Basic price" : undefined}
+                    href={href}
+                    linkLabel={call.vendorId === "vendor_c" ? "View negotiated offers →" : undefined}
+                  />
+                );
               })}
             </div>
           </section>

@@ -14,7 +14,7 @@ export const VENDOR_DEFINITIONS: Record<
 > = {
   vendor_a: { vendorName: "Speedy Lock & Key", fixtureQuoteId: "quote-a" },
   vendor_b: { vendorName: "Neighborhood Locksmith", fixtureQuoteId: "quote-b" },
-  vendor_c: { vendorName: "Premium Secure", fixtureQuoteId: "quote-c" },
+  vendor_c: { vendorName: "Negotiated Offers", fixtureQuoteId: "quote-c" },
 };
 
 const mockVoiceTrustSignals: Record<VendorId, VoiceTrustSignal[]> = {
@@ -160,7 +160,7 @@ export const mockQuotes: Quote[] = [
       "We can be there in 15 minutes.",
     ],
     transcript:
-      "Keywize: What is the total price?\nPremium: It is $165 all-in for emergency extraction.\nKeywize: What is the ETA?\nPremium: We can be there in 15 minutes.",
+      "Keywize: What is the total price?\nNegotiated Offers: It is $165 all-in for emergency extraction.\nKeywize: What is the ETA?\nNegotiated Offers: We can be there in 15 minutes.",
     priceOrTermsChanged: false,
     voiceTrustSignals: mockVoiceTrustSignals.vendor_c,
     voiceTrustScore: 92,

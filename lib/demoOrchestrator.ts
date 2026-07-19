@@ -234,7 +234,7 @@ function completeReliableNegotiation(mission: Mission): void {
   updated.transcript +=
     `\n\nNEGOTIATION:\nKeywize: We have a confirmed $${negotiation.leverage.total} all-in, no-drill-first offer. ` +
     "You are faster. Can you do $145 all-in while keeping the 15-minute ETA and approval before any drilling or price change?" +
-    `\nPremium: ${NEGOTIATION_SIGNAL_TEXT}`;
+    `\nNegotiated Offers: ${NEGOTIATION_SIGNAL_TEXT}`;
   updated.voiceTrustSignals.push(signal);
   updated.voiceTrustScore = 65;
   const [riskScore, riskLevel] = calculateRiskScore(updated, mission.jobSpec);
@@ -278,7 +278,7 @@ function completeReliableNegotiation(mission: Mission): void {
   });
   addMissionEvent(mission, {
     event: "risk_recalculated",
-    details: `Premium Secure risk recalculated to ${updated.riskLevel.toLowerCase()} (${updated.riskScore}/100).`,
+    details: `Negotiated Offers risk recalculated to ${updated.riskLevel.toLowerCase()} (${updated.riskScore}/100).`,
     vendorId: "vendor_c",
     category: "tool",
     source: eventSource(mission),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
 import type { IntakePayload, JobSpec, MissionMode } from "@/lib/types";
 import { createMissionShell, startMission } from "@/lib/missionService";
+import { clampMaxPrice } from "@/lib/jobSpec";
 
 // Required fields with human-readable prompts
 const REQUIRED_FIELDS: (keyof IntakePayload)[] = [
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
     needRekey: payload.needRekey ?? false,
     newKeysNeeded: payload.newKeysNeeded ?? 1,
     idealPrice: payload.idealPrice,
-    maxPrice: payload.maxPrice,
+    maxPrice: clampMaxPrice(payload.idealPrice, payload.maxPrice),
     budgetFlexibility: payload.budgetFlexibility,
     approvalRequiredAboveBudget: payload.approvalRequiredAboveBudget ?? true,
     authorizationConfirmed: true,

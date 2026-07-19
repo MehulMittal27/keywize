@@ -13,6 +13,22 @@ function humanize(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function offerPrice(quote: Quote): number {
+  if (quote.totalEstimate !== null) return quote.totalEstimate;
+  if (quote.dispatchFee !== null) return quote.dispatchFee;
+  return Number.POSITIVE_INFINITY;
+}
+
+function formatOfferPrice(quote: Quote): string {
+  if (quote.totalEstimate !== null) return `$${quote.totalEstimate}`;
+  if (quote.dispatchFee !== null) return `Starts at $${quote.dispatchFee}`;
+  return "No firm total";
+}
+
+function offersSortedByPrice(mission: Mission): Quote[] {
+  return [...mission.quotes].sort((a, b) => offerPrice(a) - offerPrice(b));
+}
+
 function eligibleTarget(mission: Mission): Quote | null {
   return (
     mission.quotes
@@ -138,6 +154,36 @@ export default function NegotiatePage({ params }: { params: Promise<{ id: string
             Keywize uses only a persisted competitor quote as leverage, then stores the exact confirmed response before recommending anything.
           </p>
         </header>
+
+        {mission.quotes.length > 0 && (
+          <section className="mb-8 rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="font-serif text-xl font-semibold">All stored offers</h2>
+              <span className="text-xs font-semibold text-gray-400">Sorted by price, lowest first</span>
+            </div>
+            <div className="space-y-3">
+              {offersSortedByPrice(mission).map((quote, index) => (
+                <div
+                  key={quote.id}
+                  className="flex items-center justify-between gap-4 rounded-2xl border border-black/5 bg-[#fcfbf8] p-4"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white font-mono text-xs font-bold text-gray-500 ring-1 ring-black/5">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{quote.vendorName}</p>
+                      <p className="text-xs text-gray-500">
+                        {quote.riskLevel} risk - {quote.etaMinutes === null ? "ETA unknown" : `${quote.etaMinutes} min ETA`}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="shrink-0 font-serif text-lg font-bold">{formatOfferPrice(quote)}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="mb-8 rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
           <NegotiationProgress mission={mission} />

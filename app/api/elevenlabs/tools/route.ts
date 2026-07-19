@@ -8,6 +8,7 @@ import { getMission, listMissions, setMission } from "@/lib/store";
 import { analyzeVoiceTrust } from "@/lib/voiceTrust";
 import { calculateRiskScore } from "@/lib/riskScore";
 import { rankQuotes } from "@/lib/ranking";
+import { clampMaxPrice } from "@/lib/jobSpec";
 import type {
   JobSpec,
   Mission,
@@ -158,7 +159,7 @@ export async function POST(request: NextRequest) {
         needRekey: Boolean(params.needRekey),
         newKeysNeeded: Number(params.newKeysNeeded ?? 0),
         idealPrice: Number(params.idealPrice),
-        maxPrice: Number(params.maxPrice),
+        maxPrice: clampMaxPrice(Number(params.idealPrice), Number(params.maxPrice)),
         budgetFlexibility:
           (params.budgetFlexibility as JobSpec["budgetFlexibility"]) ?? "strict",
         approvalRequiredAboveBudget: true,
