@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
 import type { IntakePayload, Mission, JobSpec } from "@/lib/types";
-import { setMission } from "@/lib/store";
+import { getMission, setMission } from "@/lib/store";
 import { rankQuotes } from "@/lib/ranking";
 import { getDemoQuotesForMission } from "@/lib/mockData";
+import { findLocksmithsNearby } from "@/lib/openai";
 
 // Required fields with human-readable prompts
 const REQUIRED_FIELDS: (keyof IntakePayload)[] = [
@@ -133,6 +134,30 @@ export async function POST(request: NextRequest) {
   };
 
   setMission(mission);
+
+  // Trigger background search for real locksmiths
+  if (jobSpec.locationCity && jobSpec.locationZip) {
+    findLocksmithsNearby(jobSpec.locationCity, jobSpec.locationZip)
+      .then((leads) => {
+        const currentMission = getMission(missionId);
+        if (currentMission) {
+          currentMission.locksmithLeads = leads;
+          currentMission.callLog.push({
+            timestamp: new Date().toISOString(),
+            event: "background_search_complete",
+            details: `Found ${leads.length} real locksmiths near ${jobSpec.locationCity}, ${jobSpec.locationZip} via OpenAI.`,
+          });
+          setMission(currentMission);
+          console.log(`[Background Search] Found ${leads.length} locksmiths for mission ${missionId}:`);
+          leads.forEach((lead) => {
+            console.log(` - ${lead.name}: ${lead.phone}`);
+          });
+        }
+      })
+      .catch((error) => {
+        console.error(`[Background Search] Failed to fetch locksmiths:`, error);
+      });
+  }
 
   return NextResponse.json(mission, { status: 201 });
 }

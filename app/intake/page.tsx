@@ -212,7 +212,7 @@ export default function IntakePage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <label className="font-semibold text-sm">Ideal Price</label>
-                      <p className="text-xs text-gray-500">The amount you'd prefer to pay.</p>
+                      <p className="text-xs text-gray-500">The amount you&apos;d prefer to pay.</p>
                     </div>
                     <div className="relative shrink-0 ml-4">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">$</span>

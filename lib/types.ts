@@ -145,6 +145,15 @@ export type Mission = {
   selectedVendorId?: string;
   /** Set after session 2 succeeds and the user uploads the call recording. */
   recordingUrl?: string;
+  /** Background-fetched real locksmith leads */
+  locksmithLeads?: LocksmithLead[];
+};
+
+// ─── Locksmith Leads ──────────────────────────────────────────────────────────
+
+export type LocksmithLead = {
+  name: string;
+  phone: string;
 };
 
 // ─── Case Definition ──────────────────────────────────────────────────────────
