@@ -31,7 +31,7 @@ POST https://api.elevenlabs.io/v1/convai/agents/create
 
 Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
 
-The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
+The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block and configures platform guardrails under `platform_settings.guardrails`. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
 
 ```txt
 ELEVENLABS_VOICE_ID=
@@ -40,6 +40,22 @@ ELEVENLABS_AGENT_OUTPUT_AUDIO_FORMAT=
 ```
 
 Leave `ELEVENLABS_VOICE_ID` blank to use the ElevenLabs default voice configured for the agent. Change the TTS model or output format only to values supported by your ElevenLabs account and integration.
+
+## Guardrail checklist
+
+The prompts and platform guardrails work together. Prompt rules tell the model how to behave, while ElevenLabs platform guardrails run independently under `platform_settings.guardrails`.
+
+Every generated agent payload should include:
+
+- `focus.is_enabled: true`
+- `prompt_injection.is_enabled: true`
+- Custom blocking guardrails for:
+  - No private reasoning, planning, tool strategy, checklist logic, or hidden chain-of-thought in spoken or text responses
+  - Staying in the assigned Keywize role
+  - No invented vendor quotes, fake leverage, fake authorization, or fake proof status
+  - No lock-bypass, picking, drilling, disabling, or access-control defeat instructions
+
+After creating agents, open each agent in the ElevenLabs dashboard and confirm the Guardrails section shows focus, prompt injection, and the Keywize custom guardrails. If the ElevenLabs schema changes, update `buildPlatformSettingsConfig()` in `scripts/create-elevenlabs-agents.mjs` rather than moving guardrail rules into prompts only.
 
 ## Voice-mode checklist
 

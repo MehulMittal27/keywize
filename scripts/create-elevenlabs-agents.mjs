@@ -13,6 +13,71 @@ const ENV_FILE_PATH = path.resolve(process.cwd(), process.env.KEYWIZE_ENV_FILE_P
 const TOOL_ENDPOINT_PATH = "/api/elevenlabs/tools";
 const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_turbo_v2";
 const TOOL_PARAMETERS_DESCRIPTION = "Tool-specific JSON parameters collected by the agent.";
+const GUARDRAIL_MODEL_ID = "gemini-2.5-flash-lite";
+
+const PLATFORM_GUARDRAILS = {
+  version: "1",
+  focus: { is_enabled: true },
+  prompt_injection: { is_enabled: true },
+  custom: {
+    config: {
+      configs: [
+        {
+          is_enabled: true,
+          name: "No private reasoning leakage",
+          prompt:
+            "Block agent responses that reveal hidden chain-of-thought, internal planning, tool strategy, checklist logic, anti-scam logic, ranking deliberation, or policy reasoning. Allow only concise user-facing or vendor-facing answers and questions.",
+          execution_mode: "blocking",
+          model: GUARDRAIL_MODEL_ID,
+          history_message_count: 1,
+          trigger_action: {
+            type: "retry",
+            feedback: "Respond with only the final user-facing or vendor-facing message. Do not reveal private reasoning, planning, tool strategy, or checklist logic.",
+          },
+        },
+        {
+          is_enabled: true,
+          name: "Stay in assigned Keywize role",
+          prompt:
+            "Block agent responses that step outside the configured Keywize role: intake gathers JobSpec only, caller speaks to locksmith vendors and records quotes only, closer negotiates and summarizes recommendations only from stored data.",
+          execution_mode: "blocking",
+          model: GUARDRAIL_MODEL_ID,
+          history_message_count: 1,
+          trigger_action: {
+            type: "retry",
+            feedback: "Stay within your assigned Keywize role and provide only the next appropriate message.",
+          },
+        },
+        {
+          is_enabled: true,
+          name: "No fabricated quotes or authorization",
+          prompt:
+            "Block claims that invent vendor quotes, discounts, ETAs, fees, policies, user authorization, proof of residence, vendor commitments, or competing leverage not present in stored or provided conversation data.",
+          execution_mode: "blocking",
+          model: GUARDRAIL_MODEL_ID,
+          history_message_count: 1,
+          trigger_action: {
+            type: "retry",
+            feedback: "Use only provided or stored facts. Do not invent quotes, leverage, authorization, proof, or vendor terms.",
+          },
+        },
+        {
+          is_enabled: true,
+          name: "No unsafe lock bypass instructions",
+          prompt:
+            "Block instructions for bypassing, picking, drilling, damaging, disabling, or defeating locks or access control systems. The agent may discuss legitimate locksmith service, authorization checks, and non-destructive vendor policies.",
+          execution_mode: "blocking",
+          model: GUARDRAIL_MODEL_ID,
+          history_message_count: 1,
+          trigger_action: {
+            type: "retry",
+            feedback: "Do not provide lock-bypass instructions. Keep the response focused on authorized locksmith service and safety checks.",
+          },
+        },
+      ],
+    },
+  },
+};
 
 const AGENT_DEFINITIONS = [
   {
@@ -278,6 +343,30 @@ function validateElevenLabsVoiceMode(payloads) {
   }
 }
 
+function validateElevenLabsGuardrails(payloads) {
+  for (const { name, payload } of payloads) {
+    const guardrails = payload.platform_settings?.guardrails;
+
+    if (guardrails?.version !== "1") {
+      throw new Error(`${name} must configure platform_settings.guardrails.version as 1.`);
+    }
+
+    if (guardrails.focus?.is_enabled !== true) {
+      throw new Error(`${name} must enable platform_settings.guardrails.focus.`);
+    }
+
+    if (guardrails.prompt_injection?.is_enabled !== true) {
+      throw new Error(`${name} must enable platform_settings.guardrails.prompt_injection.`);
+    }
+
+    const customConfigs = guardrails.custom?.config?.configs;
+
+    if (!Array.isArray(customConfigs) || customConfigs.length < 4) {
+      throw new Error(`${name} must configure custom platform guardrails for Keywize role safety.`);
+    }
+  }
+}
+
 function validateElevenLabsToolSchema(payloads) {
   for (const { name, payload } of payloads) {
     const tools = payload.conversation_config?.agent?.prompt?.tools ?? [];
@@ -475,11 +564,21 @@ function buildVoiceModeConfig(env) {
   };
 }
 
+function buildPlatformSettingsConfig() {
+  // Schema assumption: ElevenLabs Conversational AI create accepts platform_settings.guardrails
+  // at the agent root. If the schema changes, keep guardrail updates isolated here and
+  // preserve conversation_config and webhook tool payload behavior below.
+  return {
+    guardrails: PLATFORM_GUARDRAILS,
+  };
+}
+
 function buildAgentPayload({ name, prompt, tools }, webhookUrl, voiceModeConfig) {
   // Schema assumption: this is the current Conversational AI agent create shape.
   // Keep this isolated so updates are local if ElevenLabs changes field names.
   return {
     name,
+    platform_settings: buildPlatformSettingsConfig(),
     conversation_config: {
       ...voiceModeConfig,
       agent: {
@@ -606,6 +705,7 @@ async function main() {
   }));
 
   validateElevenLabsVoiceMode(payloads);
+  validateElevenLabsGuardrails(payloads);
   validateElevenLabsToolSchema(payloads);
 
   if (dryRun) {
@@ -627,6 +727,7 @@ async function main() {
     console.log(`Dry run validated ${payloads.length} ElevenLabs agent payloads.`);
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
     console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
+    console.log("Platform guardrail sanity check passed: focus, prompt injection, and Keywize custom guardrails are configured for every agent.");
     console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
     console.log("Tool schema sanity check passed: every webhook request_body_schema uses properties arrays with id fields for tool_name, parameters, and nested tool-specific fields.");
     console.log(`Tool split:\n${toolSummary}`);
