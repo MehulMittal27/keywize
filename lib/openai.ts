@@ -15,16 +15,28 @@ export const LocksmithResponseSchema = z.object({
   ).describe("A list of locksmiths found in the requested area"),
 });
 
+const MOCK_STREET_NAMES = [
+  "Market St", "Mission St", "Valencia St", "Castro St", "Haight St",
+  "Divisadero St", "Fillmore St", "Van Ness Ave", "Geary Blvd", "Irving St",
+];
+
+const MOCK_BUSINESS_NAMES = [
+  "Bay Area Lock & Key", "Golden Gate Locksmith", "SF Pro Locksmith",
+  "Pacific Lock Solutions", "City Center Locksmith", "Rapid Key Services",
+  "Sunset District Locks", "Castro Locksmith Co.", "Mission Lock Pros",
+  "North Beach Lock & Safe",
+];
+
 /**
  * Uses OpenAI to search for locksmiths within a 50km radius.
  */
 export async function findLocksmithsNearby(city: string, zip: string): Promise<LocksmithLead[]> {
   console.log(`[Mock] Generating 10 mock locksmiths for ${city}, ${zip}...`);
 
-  // Return 10 mocked locksmiths for now
   return Array.from({ length: 10 }).map((_, i) => ({
-    name: `Mock Locksmith ${i + 1}`,
-    phone: `+1 555-010-${String(i).padStart(2, '0')}`,
+    name: MOCK_BUSINESS_NAMES[i],
+    phone: `+1 (415) 55${i}-${String(1000 + i * 137).slice(0, 4)}`,
+    address: `${100 + i * 123} ${MOCK_STREET_NAMES[i]}, ${city}, CA ${zip}`,
   }));
 
   /* 

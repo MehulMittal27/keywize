@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { VoiceTrustBadge } from "../../../components/VoiceTrustBadge";
 import { ConfidenceWaveform } from "../../../components/ConfidenceWaveform";
 import type { Mission } from "../../../lib/types";
@@ -9,7 +10,6 @@ import type { Mission } from "../../../lib/types";
 const STEPS = [
   "Intake complete",
   "Finding locksmiths nearby",
-  "Calling Speedy Lock & Key",
   "Calling Neighborhood Locksmith",
   "Calling Premium Secure",
   "Negotiating with Premium Secure",
@@ -20,9 +20,6 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
   const router = useRouter();
   const { id } = use(params);
   const [step, setStep] = useState(0);
-  const [isNegotiating, setIsNegotiating] = useState(false);
-  const [negotiated, setNegotiated] = useState(false);
-  const [vendorCPrice, setVendorCPrice] = useState(165);
   const [mission, setMission] = useState<Mission | null>(null);
 
   useEffect(() => {
@@ -33,8 +30,6 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
       .then((data: Mission | null) => {
         if (cancelled || !data) return;
         setMission(data);
-        const premium = data.quotes.find((quote) => quote.vendorName === "Premium Secure");
-        if (premium?.totalEstimate) setVendorCPrice(premium.totalEstimate);
       })
       .catch(() => {
         // Keep the demo page reliable with built-in mock values.
@@ -47,40 +42,15 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
   const jobSpec = mission?.jobSpec;
 
-  // Auto-progress through steps
+  // Auto-progress through every step in the Live Call Log
   useEffect(() => {
-    if (step < 5) {
+    if (step < STEPS.length - 1) {
       const timer = setTimeout(() => setStep(s => s + 1), 1600);
       return () => clearTimeout(timer);
     }
   }, [step]);
 
-  const handleTriggerNegotiation = async () => {
-    setIsNegotiating(true);
-    setStep(5);
-    try {
-      const res = await fetch("/api/negotiate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ missionId: id }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMission(data.mission);
-      }
-    } catch {
-      // ignore — fallback to mock
-    }
-    setTimeout(() => {
-      setVendorCPrice(145);
-      setIsNegotiating(false);
-      setNegotiated(true);
-      setStep(6);
-    }, 2200);
-  };
-
-  const showA = step >= 2;
-  const showB = step >= 3;
+  const showB = step >= 2;
   const showC = step >= 4;
 
   return (
@@ -161,70 +131,30 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
           </div>
 
           {/* Actions */}
-          {step >= 4 && (
-            <div className="space-y-3">
-              <button
-                onClick={handleTriggerNegotiation}
-                disabled={isNegotiating || negotiated}
-                className={`w-full py-4 rounded-full font-medium text-white transition-all shadow-md ${isNegotiating || negotiated ? "bg-gray-300 cursor-not-allowed" : "bg-[#111111] hover:bg-gray-800 active:scale-95"}`}
-              >
-                {isNegotiating ? "AI is Negotiating..." : negotiated ? "✓ Negotiation Complete" : "Trigger Demo Negotiation"}
-              </button>
-
-              {negotiated && (
-                <button
-                  onClick={() => router.push(`/report/${id}`)}
-                  className="w-full py-4 rounded-full font-medium text-[#111111] bg-white border border-[#111111] hover:bg-gray-50 transition-all"
-                >
-                  View Final Report →
-                </button>
-              )}
-            </div>
+          {step >= STEPS.length - 1 && (
+            <button
+              onClick={() => router.push(`/report/${id}`)}
+              className="w-full py-4 rounded-full font-medium text-white bg-[#111111] hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+            >
+              View Final Report →
+            </button>
           )}
         </div>
 
         {/* RIGHT: Vendor Quotes */}
         <div className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-5">
-            Vendor Quotes ({[showA, showB, showC].filter(Boolean).length}/3)
+            Vendor Quotes ({[showB, showC].filter(Boolean).length}/2)
           </h2>
 
           <div className="space-y-5">
 
-            {/* Vendor A — Bait & Switch — HIGH RISK */}
-            {showA && (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold">Speedy Lock &amp; Key</h3>
-                    <p className="text-sm text-pink-600 font-medium">Refused total estimate</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-serif">Starts at $39</span>
-                    <p className="text-sm text-gray-500">20 min ETA</p>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-pink-50 rounded-2xl mb-4 border border-pink-100">
-                  <div className="flex items-center gap-3 mb-2">
-                    <VoiceTrustBadge level="Low" />
-                    <span className="text-xs font-bold text-pink-700 uppercase tracking-wide">HIGH RISK DETECTED</span>
-                  </div>
-                  <p className="text-sm italic text-gray-700">&ldquo;Uh… well, it depends on the lock.&rdquo;</p>
-                  <div className="mt-3"><ConfidenceWaveform score={35} /></div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1 bg-pink-50 text-pink-600 border border-pink-100 rounded-full text-xs font-medium">Tech decides drilling</span>
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">No ID required</span>
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">Risk score: 85/100</span>
-                </div>
-              </div>
-            )}
-
-            {/* Vendor B — Honest Local */}
+            {/* Vendor B — Honest Local — clickable through to the full sorted price table */}
             {showB && (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
+              <Link
+                href={`/mission/${id}/prices`}
+                className="block bg-white p-6 rounded-3xl shadow-sm border border-black/5 hover:shadow-md hover:border-[#30a985]/30 transition-all cursor-pointer"
+              >
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="text-lg font-bold">Neighborhood Locksmith</h3>
@@ -244,68 +174,40 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
                   <div className="mt-3"><ConfidenceWaveform score={95} /></div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
                   <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-xs font-medium">No-drill first</span>
                   <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">ID verified</span>
                   <span className="px-3 py-1 bg-green-50 text-green-600 border border-green-100 rounded-full text-xs font-medium">Risk score: 10/100</span>
+                  <span className="ml-auto text-xs font-semibold text-[#30a985]">Compare all quotes →</span>
                 </div>
-              </div>
+              </Link>
             )}
 
-            {/* Vendor C — Premium Fast, negotiable */}
+            {/* Vendor C — Premium Fast — clickable through to the negotiation window */}
             {showC && (
-              <div className="bg-white p-6 rounded-3xl shadow-md border-2 border-[#111111] relative overflow-hidden">
+              <Link
+                href={`/mission/${id}/negotiate`}
+                className="block bg-white p-6 rounded-3xl shadow-md border-2 border-[#111111] relative overflow-hidden hover:shadow-lg transition-all cursor-pointer"
+              >
                 <div className="absolute top-0 right-0 bg-[#111111] text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-bl-xl">Fastest ETA</div>
 
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className="text-lg font-bold">Premium Secure</h3>
-                    <p className={`text-sm font-medium ${negotiated ? "text-[#30a985]" : "text-yellow-600"}`}>
-                      {negotiated ? "Negotiated · Low-med risk" : "Unclear pricing · Medium risk"}
-                    </p>
+                    <h3 className="text-lg font-bold">Negotiated Offers</h3>
+                    <p className="text-sm text-yellow-600 font-medium">Unclear pricing · Medium risk</p>
                   </div>
                   <div className="text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {negotiated && <span className="text-lg text-gray-400 line-through">$165</span>}
-                      <span className={`text-2xl font-serif font-bold transition-colors ${negotiated ? "text-[#30a985]" : "text-[#111111]"}`}>
-                        ${vendorCPrice}
-                      </span>
-                    </div>
+                    <span className="text-2xl font-serif font-bold">$165</span>
                     <p className="text-sm text-[#111111] font-semibold">15 min ETA</p>
                   </div>
                 </div>
 
-                {isNegotiating && (
-                  <div className="p-4 bg-purple-50 rounded-2xl mb-4 border border-purple-100 flex items-center gap-3">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
-                    </span>
-                    <span className="text-sm font-medium text-purple-800">
-                      &ldquo;I have a confirmed quote at $130 all-in with no-drill-first. Can you match it or include two keys?&rdquo;
-                    </span>
-                  </div>
-                )}
-
-                {!isNegotiating && negotiated && (
-                  <div className="p-4 bg-[#f7f5f0] rounded-2xl mb-4 border border-gray-200">
-                    <div className="flex items-center gap-3 mb-2">
-                      <VoiceTrustBadge level="Medium" />
-                      <span className="text-xs font-bold text-yellow-700 uppercase tracking-wide">VoiceTrust hesitation detected</span>
-                    </div>
-                    <p className="text-sm italic text-gray-700">&ldquo;Um, we can drop it to $145 if you book right now.&rdquo;</p>
-                    <div className="mt-3"><ConfidenceWaveform score={65} /></div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${negotiated ? "bg-[#30a985]/10 text-[#30a985] border-[#30a985]/20" : "bg-yellow-50 text-yellow-700 border-yellow-100"}`}>
-                    {negotiated ? "✓ $145 all-in confirmed" : "Starts at $165"}
-                  </span>
-                  {negotiated && <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-xs font-medium">No-drill first</span>}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="px-3 py-1 bg-yellow-50 text-yellow-700 border border-yellow-100 rounded-full text-xs font-medium">Starts at $165</span>
                   <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">Risk score: 25/100</span>
+                  <span className="ml-auto text-xs font-semibold text-[#30a985]">View offers →</span>
                 </div>
-              </div>
+              </Link>
             )}
 
           </div>

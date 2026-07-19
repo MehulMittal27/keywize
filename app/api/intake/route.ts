@@ -5,6 +5,7 @@ import { getMission, setMission } from "@/lib/store";
 import { rankQuotes } from "@/lib/ranking";
 import { getDemoQuotesForMission } from "@/lib/mockData";
 import { findLocksmithsNearby } from "@/lib/openai";
+import { mockRunPriceDiscovery } from "@/lib/priceDiscovery";
 
 // Required fields with human-readable prompts
 const REQUIRED_FIELDS: (keyof IntakePayload)[] = [
@@ -145,8 +146,19 @@ export async function POST(request: NextRequest) {
           currentMission.callLog.push({
             timestamp: new Date().toISOString(),
             event: "background_search_complete",
-            details: `Found ${leads.length} real locksmiths near ${jobSpec.locationCity}, ${jobSpec.locationZip} via OpenAI.`,
+            details: `Found ${leads.length} locksmiths near ${jobSpec.locationCity}, ${jobSpec.locationZip}.`,
           });
+
+          // Immediately run mock price discovery against the discovered leads
+          const priceResults = mockRunPriceDiscovery(leads);
+          currentMission.priceResults = priceResults;
+          const quoted = priceResults.filter((r) => r.basicPrice !== null).length;
+          currentMission.callLog.push({
+            timestamp: new Date().toISOString(),
+            event: "price_discovery_complete",
+            details: `${quoted} of ${priceResults.length} agents returned a price. Results sorted ascending.`,
+          });
+
           setMission(currentMission);
           console.log(`[Background Search] Found ${leads.length} locksmiths for mission ${missionId}:`);
           leads.forEach((lead) => {

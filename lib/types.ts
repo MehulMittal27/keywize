@@ -147,6 +147,8 @@ export type Mission = {
   recordingUrl?: string;
   /** Background-fetched real locksmith leads */
   locksmithLeads?: LocksmithLead[];
+  /** Price discovery results — one entry per agent session, sorted asc by price */
+  priceResults?: LocksmithPriceResult[];
 };
 
 // ─── Locksmith Leads ──────────────────────────────────────────────────────────
@@ -154,6 +156,17 @@ export type Mission = {
 export type LocksmithLead = {
   name: string;
   phone: string;
+  address: string;
+};
+
+export type AgentSessionStatus = "quoted" | "refused" | "no_answer";
+
+export type LocksmithPriceResult = {
+  name: string;
+  address: string;
+  phone: string;
+  basicPrice: number | null;
+  status: AgentSessionStatus;
 };
 
 // ─── Case Definition ──────────────────────────────────────────────────────────
