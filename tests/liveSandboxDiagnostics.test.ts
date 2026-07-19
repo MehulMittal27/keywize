@@ -12,6 +12,7 @@ import {
   markLiveSandboxTimedOut,
   markLiveSandboxToolReceived,
   markLiveSandboxToolRejected,
+  outboundCallStartWasConfirmed,
   parseLiveSandboxFallbackMs,
   providerConversationHasEnded,
   providerConversationShowsAnswer,
@@ -29,6 +30,24 @@ function call(): VendorCall {
     fallbackUsed: false,
   };
 }
+
+test("requires an explicit successful provider response before marking a call started", () => {
+  assert.equal(
+    outboundCallStartWasConfirmed({
+      success: true,
+      conversation_id: "private-conversation-id",
+    }),
+    true
+  );
+  assert.equal(
+    outboundCallStartWasConfirmed({
+      success: false,
+      message: "provider did not initiate the call",
+    }),
+    false
+  );
+  assert.equal(outboundCallStartWasConfirmed({ success: true }), false);
+});
 
 test("uses a bounded two-minute default instead of the previous 20-second timeout", () => {
   assert.equal(parseLiveSandboxFallbackMs(undefined), DEFAULT_LIVE_SANDBOX_FALLBACK_MS);
@@ -58,21 +77,24 @@ test("separates an answered phone with no webhook from a rejected webhook", () =
 
 test("tracks accepted quote and disclosed fallback without provider identifiers", () => {
   const vendorCall = call();
+  markLiveSandboxPhoneAnswered(vendorCall, "correlated_tool_webhook");
   markLiveSandboxToolReceived(vendorCall);
   markLiveSandboxQuoteSaved(vendorCall);
   markLiveSandboxFallbackUsed(vendorCall);
 
-  assert.deepEqual(ensureLiveSandboxDiagnostics(vendorCall), {
-    toolWebhook: "quote_saved",
-    timedOut: false,
-    fallbackReplayUsed: true,
-  });
-  assert.equal(JSON.stringify(vendorCall.liveDiagnostics).includes("provider"), false);
+  const diagnostics = ensureLiveSandboxDiagnostics(vendorCall);
+  assert.equal(diagnostics.toolWebhook, "quote_saved");
+  assert.equal(diagnostics.answerEvidence, "correlated_tool_webhook");
+  assert.equal(typeof diagnostics.phoneAnsweredAt, "string");
+  assert.equal(diagnostics.timedOut, false);
+  assert.equal(diagnostics.fallbackReplayUsed, true);
+  assert.equal(JSON.stringify(vendorCall.liveDiagnostics).includes("private-conversation-id"), false);
 });
 
 test("recognizes provider answer and end states from safe conversation status", () => {
   assert.equal(providerConversationShowsAnswer({ status: "initiated" }), false);
   assert.equal(providerConversationShowsAnswer({ status: "in-progress" }), true);
+  assert.equal(providerConversationShowsAnswer({ status: "processing" }), false);
   assert.equal(providerConversationShowsAnswer({ status: "done" }), false);
   assert.equal(providerConversationShowsAnswer({ status: "initiated", transcript: [{}] }), true);
   assert.equal(providerConversationHasEnded({ status: "done" }), true);

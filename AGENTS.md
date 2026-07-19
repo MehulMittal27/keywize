@@ -13,6 +13,7 @@ Keywize is a hackathon MVP for a voice-first AI locksmith negotiator. The produc
 - Keep user safety explicit: authorization confirmation and proof-of-residence reminders are required for lockout flows.
 - Do not commit real API keys, Twilio credentials, ElevenLabs keys, phone numbers, or user addresses.
 - Use mock data first when real integrations are not ready.
+- Live sandbox outbound calls are initiated through ElevenLabs, not the app's Twilio REST credentials. See `docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure` for destination and log boundaries.
 - Do not manually edit generated build artifacts.
 
 ## Project structure

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
 import type { IntakePayload, JobSpec, MissionMode } from "@/lib/types";
 import { createMissionShell, startMission } from "@/lib/missionService";
+import { toPublicMission } from "@/lib/publicMission";
 import { clampMaxPrice } from "@/lib/jobSpec";
 
 // Required fields with human-readable prompts
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // authorizationConfirmed must be true — safety requirement
+  // authorizationConfirmed must be true - safety requirement
   if (!body.authorizationConfirmed) {
     return NextResponse.json(
       {
@@ -97,5 +98,5 @@ export async function POST(request: NextRequest) {
   const mission = createMissionShell(uuid(), jobSpec, mode);
   await startMission(mission);
 
-  return NextResponse.json(mission, { status: 201 });
+  return NextResponse.json(toPublicMission(mission), { status: 201 });
 }

@@ -7,6 +7,7 @@ import {
   markLiveSandboxCallStarted,
   markLiveSandboxPhoneAnswered,
   markLiveSandboxPhoneSessionEnded,
+  outboundCallStartWasConfirmed,
   parseLiveSandboxFallbackMs,
   providerConversationHasEnded,
   providerConversationShowsAnswer,
@@ -16,7 +17,9 @@ import {
   getLiveSandboxEnvValue,
   getLiveSandboxPhoneNumberId,
   inspectLiveSandboxConfig,
+  inspectLiveSandboxTelephony,
   liveSandboxConfigFallbackReason,
+  liveSandboxTelephonyBlockingReason,
   type LiveSandboxConfigStatus,
 } from "./liveSandboxConfig";
 import type { CallRole, Mission, VendorCall, VendorId } from "./types";
@@ -108,6 +111,16 @@ export async function initiateSandboxCall(
   mission: Mission,
   call: VendorCall
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const telephonyDiagnostics = inspectLiveSandboxTelephony(process.env);
+  mission.liveSandboxTelephony = telephonyDiagnostics;
+  const telephonyBlockingReason = liveSandboxTelephonyBlockingReason(
+    telephonyDiagnostics
+  );
+  if (telephonyBlockingReason) {
+    call.status = "failed";
+    return { ok: false, reason: telephonyBlockingReason };
+  }
+
   const configStatus = getLiveSandboxConfigStatus();
   if (!configStatus.configured) {
     return {
@@ -186,14 +199,27 @@ export async function initiateSandboxCall(
 
     if (!response.ok) {
       call.status = "failed";
-      return { ok: false, reason: "A controlled sandbox call could not be started." };
+      return {
+        ok: false,
+        reason:
+          "ElevenLabs rejected the controlled outbound request. Check the linked phone number, Twilio integration, outbound permissions, and billing in ElevenLabs before retrying.",
+      };
     }
 
     const raw = (await response.json()) as Record<string, unknown>;
+    if (!outboundCallStartWasConfirmed(raw)) {
+      call.status = "failed";
+      return {
+        ok: false,
+        reason:
+          "ElevenLabs did not confirm that the controlled call started. Check ElevenLabs Conversations and the linked Twilio integration; Keywize did not call Twilio's REST API directly.",
+      };
+    }
+
     markLiveSandboxCallStarted(call);
     addMissionEvent(mission, {
-      event: "sandbox_call_started",
-      details: `${call.role === "caller" ? "Caller" : "Closer"} started a controlled sandbox call to ${liveSandboxVendorLabel(call.vendorId)}.`,
+      event: "call_started",
+      details: `${call.role === "caller" ? "Caller" : "Closer"} call to ${liveSandboxVendorLabel(call.vendorId)} was accepted by the ElevenLabs outbound API. This does not confirm that the callee answered.`,
       vendorId: call.vendorId,
       category: "call",
       source: "live_sandbox",
@@ -203,8 +229,7 @@ export async function initiateSandboxCall(
       callId: call.id,
       vendorId: call.vendorId,
       role: call.role,
-      conversationId:
-        typeof raw.conversation_id === "string" ? raw.conversation_id : undefined,
+      conversationId: raw.conversation_id as string,
       providerCallId:
         typeof raw.callSid === "string"
           ? raw.callSid
@@ -215,7 +240,11 @@ export async function initiateSandboxCall(
     return { ok: true };
   } catch {
     call.status = "failed";
-    return { ok: false, reason: "A controlled sandbox call could not be started." };
+    return {
+      ok: false,
+      reason:
+        "Keywize could not reach the ElevenLabs outbound API. No direct Twilio REST request was made; verify ElevenLabs availability and server connectivity.",
+    };
   }
 }
 
@@ -235,15 +264,15 @@ export function getPrivateCallCorrelationByConversationId(
 function endedWithoutQuoteDetails(call: VendorCall): string {
   const diagnostics = ensureLiveSandboxDiagnostics(call);
   if (diagnostics.toolWebhook === "rejected") {
-    return `${liveSandboxVendorLabel(call.vendorId)} answered, but save_quote reached Keywize and was rejected: ${diagnostics.toolRejectionReason ?? "invalid fields"}.`;
+    return `${liveSandboxVendorLabel(call.vendorId)} produced a save_quote webhook, but Keywize rejected it: ${diagnostics.toolRejectionReason ?? "invalid fields"}.`;
   }
   if (diagnostics.toolWebhook === "received") {
-    return `${liveSandboxVendorLabel(call.vendorId)} answered and save_quote reached Keywize, but no quote was persisted.`;
+    return `${liveSandboxVendorLabel(call.vendorId)} produced a save_quote webhook, but no quote was persisted.`;
   }
   if (diagnostics.phoneAnsweredAt) {
-    return `${liveSandboxVendorLabel(call.vendorId)} answered, but the save_quote webhook never reached Keywize.`;
+    return `ElevenLabs showed conversation activity for ${liveSandboxVendorLabel(call.vendorId)}, but the save_quote webhook never reached Keywize.`;
   }
-  return `${liveSandboxVendorLabel(call.vendorId)} call ended before Keywize observed an answered phone or save_quote webhook.`;
+  return `${liveSandboxVendorLabel(call.vendorId)} call ended before Keywize observed conversation activity or a save_quote webhook.`;
 }
 
 export async function refreshLiveSandboxCallStatuses(
@@ -285,8 +314,8 @@ export async function refreshLiveSandboxCallStatuses(
         if (markLiveSandboxPhoneAnswered(call)) {
           call.status = "connected";
           addMissionEvent(mission, {
-            event: "sandbox_phone_answered",
-            details: `${liveSandboxVendorLabel(call.vendorId)} phone answered the controlled sandbox call. Waiting for a structured quote.`,
+            event: "callee_answered",
+            details: `ElevenLabs conversation activity indicates ${liveSandboxVendorLabel(call.vendorId)} likely answered. Keywize has no direct carrier answer callback, so it is waiting for the correlated quote webhook.`,
             vendorId: call.vendorId,
             category: "call",
             source: "live_sandbox",
@@ -298,7 +327,7 @@ export async function refreshLiveSandboxCallStatuses(
       if (providerConversationHasEnded(payload)) {
         if (markLiveSandboxPhoneSessionEnded(call)) {
           addMissionEvent(mission, {
-            event: "sandbox_call_ended_without_quote",
+            event: "call_ended_no_quote",
             details: endedWithoutQuoteDetails(call),
             vendorId: call.vendorId,
             category: "call",
@@ -365,6 +394,7 @@ export async function advanceLiveSandboxCallerCalls(
 
 export async function startLiveSandboxMission(mission: Mission): Promise<void> {
   mission.mode = "live_sandbox";
+  mission.liveSandboxTelephony = inspectLiveSandboxTelephony(process.env);
   mission.status = "calling_vendors";
   mission.orchestration.replayActive = false;
   mission.orchestration.quoteCursor = 0;

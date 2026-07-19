@@ -71,9 +71,26 @@ export type LiveSandboxToolWebhookStatus =
   | "rejected"
   | "quote_saved";
 
+export type LiveSandboxDestinationKind =
+  | "human_tester"
+  | "twilio_vendor_persona"
+  | "unspecified";
+
+export type LiveSandboxTelephonyDiagnostics = {
+  outboundInitiator: "elevenlabs";
+  telephonyIntegration: "twilio";
+  keywizeUsesTwilioRestApi: false;
+  destinationKind: LiveSandboxDestinationKind;
+  destinationPersonaReady: boolean | null;
+  setupIssue?:
+    | "destination_kind_not_declared"
+    | "twilio_vendor_persona_not_confirmed";
+};
+
 export type LiveSandboxCallDiagnostics = {
   callStartedAt?: string;
   phoneAnsweredAt?: string;
+  answerEvidence?: "elevenlabs_conversation_activity" | "correlated_tool_webhook";
   phoneSessionEndedAt?: string;
   toolWebhook: LiveSandboxToolWebhookStatus;
   toolRejectionReason?: string;
@@ -178,6 +195,8 @@ export type CallLogEntry = {
   category: MissionEventCategory;
   source: MissionEventSource;
   toolName?:
+    | "save_quote"
+    | "update_negotiation"
     | "quote_saved"
     | "uncertainty_analyzed"
     | "risk_recalculated"
@@ -273,6 +292,7 @@ export type Mission = {
   negotiation: NegotiationResult | null;
   approval: MissionApproval | null;
   orchestration: MissionOrchestration;
+  liveSandboxTelephony?: LiveSandboxTelephonyDiagnostics;
   fallbackReason?: string;
   selectedVendorId?: string;
   recordingUrl?: string;

@@ -10,7 +10,13 @@ import {
   LIVE_SANDBOX_ROLEPLAY,
   LIVE_SANDBOX_VENDOR_ORDER,
 } from "@/lib/liveSandboxGuide";
-import type { Mission, Quote, VendorCall, VendorCallStatus } from "@/lib/types";
+import type {
+  LiveSandboxTelephonyDiagnostics,
+  Mission,
+  Quote,
+  VendorCall,
+  VendorCallStatus,
+} from "@/lib/types";
 
 const STATUS_LABELS: Record<VendorCallStatus, string> = {
   queued: "Queued",
@@ -28,7 +34,7 @@ function humanize(value: string): string {
 
 // Vendor A is the deliberately risky bait-and-switch persona. While a call to
 // it is still in flight we show a generic "searching" label and give it no
-// clickable quote window — its real identity and risk flag still surface on
+// clickable quote window - its real identity and risk flag still surface on
 // the final report once quotes are in.
 const HIDDEN_VENDOR_ID = "vendor_a";
 const SEARCHING_LABEL = "Searching locksmiths nearby";
@@ -45,56 +51,81 @@ function modeLabel(mission: Mission): string {
 
 function liveDiagnosticText(call: VendorCall): string[] {
   const diagnostics = call.liveDiagnostics;
+  const vendorLabel = LIVE_SANDBOX_ROLEPLAY[call.vendorId].label;
   const lines = [
     diagnostics?.callStartedAt
-      ? "Live call started"
+      ? "call_started - ElevenLabs accepted the outbound request; this is not proof of answer"
       : call.fallbackUsed
-        ? "Live call not started before fallback"
-        : "Waiting to start in A, B, C order",
+        ? "call_started - not reached before fallback"
+        : "call_started - waiting for this slot in A, B, C order",
   ];
 
   if (diagnostics?.phoneAnsweredAt) {
     lines.push(
-      diagnostics.phoneSessionEndedAt && !call.quoteId
-        ? "Phone answered, but no quote was saved before the call ended"
-        : "Phone answered"
+      diagnostics.answerEvidence === "correlated_tool_webhook"
+        ? "callee_answered - inferred from the correlated tool webhook"
+        : "callee_answered - inferred from ElevenLabs conversation activity, not a direct carrier callback"
     );
-  } else if (diagnostics?.phoneSessionEndedAt) {
-    lines.push("No answered phone session was observed");
   } else if (diagnostics?.callStartedAt) {
-    lines.push("Waiting for an answered phone session");
+    lines.push(
+      diagnostics.phoneSessionEndedAt
+        ? "callee_answered - not confirmed before the provider session ended"
+        : "callee_answered - not confirmed yet"
+    );
   }
 
   switch (diagnostics?.toolWebhook) {
     case "quote_saved":
-      lines.push("save_quote webhook accepted - quote saved");
+      lines.push("tool_called - save_quote reached Keywize");
+      lines.push("quote_saved - structured quote persisted");
       break;
     case "rejected":
       lines.push(
-        `save_quote webhook called but rejected - ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}`
+        `tool_called - save_quote rejected: ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}`
       );
       break;
     case "received":
-      lines.push("save_quote webhook called - no quote saved yet");
+      lines.push("tool_called - save_quote reached Keywize; quote not saved yet");
       break;
     default:
-      if (
-        diagnostics?.timedOut ||
-        diagnostics?.phoneSessionEndedAt ||
-        diagnostics?.fallbackReplayUsed
-      ) {
-        lines.push("save_quote webhook never reached Keywize");
-      } else {
-        lines.push("save_quote webhook not called yet");
-      }
+      lines.push("tool_called - save_quote has not reached Keywize");
   }
 
-  if (diagnostics?.timedOut) lines.push("Timed out waiting for all quotes");
-  if (diagnostics?.fallbackReplayUsed) lines.push("Disclosed reliable replay used");
+  if (diagnostics?.phoneSessionEndedAt && !call.quoteId && !diagnostics.timedOut) {
+    lines.push(
+      `call_ended_no_quote - Call placed, but no quote webhook arrived. Check that the destination answers as ${vendorLabel}.`
+    );
+  }
+  if (diagnostics?.timedOut) {
+    lines.push(
+      `timed_out_no_quote - Call placed, but no quote webhook arrived. Check that the destination answers as ${vendorLabel}.`
+    );
+  }
+  if (diagnostics?.fallbackReplayUsed) lines.push("fallback - disclosed reliable replay used");
   return lines;
 }
 
-function LiveSandboxPanel({ calls }: { calls: VendorCall[] }) {
+function destinationSetupText(
+  telephony: LiveSandboxTelephonyDiagnostics | undefined
+): string {
+  if (telephony?.destinationKind === "human_tester") {
+    return "Destination: human tester. Pick up and answer as the on-screen Vendor A, B, or C persona.";
+  }
+  if (telephony?.destinationKind === "twilio_vendor_persona") {
+    return telephony.destinationPersonaReady
+      ? "Destination: Twilio vendor persona, declared ready. Its inbound Voice webhook must conduct the vendor roleplay."
+      : "Destination: Twilio number, but persona readiness is not confirmed. Keywize will not dial until its inbound Voice webhook conducts the vendor roleplay.";
+  }
+  return "Destination type is not declared. Set KEYWIZE_SANDBOX_DESTINATION_KIND so diagnostics can distinguish a human tester from a Twilio vendor persona.";
+}
+
+function LiveSandboxPanel({
+  calls,
+  telephony,
+}: {
+  calls: VendorCall[];
+  telephony: LiveSandboxTelephonyDiagnostics | undefined;
+}) {
   return (
     <section className="rounded-3xl border border-pink-200 bg-pink-50 p-5" aria-label="Live sandbox roleplay and diagnostics">
       <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
@@ -104,6 +135,12 @@ function LiveSandboxPanel({ calls }: { calls: VendorCall[] }) {
       <p className="mt-2 text-sm leading-relaxed text-pink-900">
         The linked Keywize number calls only configured test phones, one at a time in A, B, C order. Stay on through the final readback so the Caller can save the quote.
       </p>
+      <div className="mt-4 rounded-2xl border border-pink-200 bg-white/85 p-4 text-xs leading-relaxed text-gray-700">
+        <p className="font-bold text-black">Provider path: Keywize server → ElevenLabs outbound API → linked Twilio integration → controlled destination.</p>
+        <p className="mt-2">Keywize does not use its TWILIO_* credentials or call Twilio&apos;s REST API for this flow. Start with ElevenLabs Conversations/outbound logs. A Twilio Console shows a leg only in the Twilio project that owns that linked or destination leg.</p>
+        <p className="mt-2 font-semibold text-pink-800">{destinationSetupText(telephony)}</p>
+        <p className="mt-2">A recording about a trial account or &ldquo;press any key to execute your code&rdquo; is not the Keywize Caller&apos;s configured opening. It is a telephony gate or Voice app before agent speech. If pressing a key disconnects, inspect the linked integration in ElevenLabs and any Twilio project that owns the affected leg.</p>
+      </div>
       <div className="mt-4 space-y-3">
         {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {
           const roleplay = LIVE_SANDBOX_ROLEPLAY[vendorId];
@@ -389,7 +426,10 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
       <main className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[340px_1fr]">
         <aside className="space-y-5">
           {mission.mode === "live_sandbox" && (
-            <LiveSandboxPanel calls={quoteCalls} />
+            <LiveSandboxPanel
+              calls={quoteCalls}
+              telephony={mission.liveSandboxTelephony}
+            />
           )}
 
           {mission.fallbackReason && (
