@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   inspectLiveSandboxConfig,
   inspectLiveSandboxTelephony,
-  liveSandboxConfigFallbackReason,
   liveSandboxTelephonyBlockingReason,
 } from "../lib/liveSandboxConfig";
 
@@ -28,10 +27,6 @@ test("reports canonical missing names without configured values", () => {
     configured: false,
     missingEnvNames: ["KEYWIZE_SANDBOX_VENDOR_B_PHONE"],
   });
-  assert.equal(
-    liveSandboxConfigFallbackReason(status),
-    "Live sandbox is not configured on this server. Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE."
-  );
   assert.equal(JSON.stringify(status).includes("dummy-"), false);
 });
 

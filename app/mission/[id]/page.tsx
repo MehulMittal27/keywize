@@ -45,7 +45,8 @@ function displayVendorName(vendorId: string, vendorName: string): string {
 
 function modeLabel(mission: Mission): string {
   if (mission.mode === "reliable_demo") return "Reliable Demo - simulated vendors";
-  if (mission.fallbackReason) return "Live Sandbox - reliable replay fallback";
+  if (mission.liveSandboxFallback) return mission.liveSandboxFallback.title;
+  if (mission.fallbackReason) return "Live Sandbox fallback - reason shown below";
   return "Live Sandbox - controlled calls";
 }
 
@@ -433,14 +434,41 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
           )}
 
           {mission.fallbackReason && (
-            <div className="rounded-3xl border border-pink-200 bg-pink-50 p-5">
-              <p className="text-xs font-bold uppercase tracking-wider text-pink-700">Visible fallback</p>
-              <p className="mt-2 text-sm leading-relaxed text-pink-900">{mission.fallbackReason}</p>
-              <p className="mt-2 text-xs font-semibold text-pink-800">
-                Disclosed reliable persona replay is now filling only missing demo results.
+            <section
+              className="rounded-3xl border border-pink-200 bg-pink-50 p-5"
+              aria-label="Live sandbox fallback reason"
+            >
+              <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
+                Replay fallback
+                {mission.liveSandboxFallback
+                  ? ` - ${humanize(mission.liveSandboxFallback.stage)} stage`
+                  : ""}
               </p>
-              <p className="mt-1 text-xs text-pink-700">No arbitrary business or phone number was dialed.</p>
-            </div>
+              <h2 className="mt-2 text-base font-bold leading-snug text-pink-950">
+                {mission.liveSandboxFallback?.title ?? mission.fallbackReason}
+              </h2>
+              {mission.liveSandboxFallback && (
+                <p className="mt-2 text-sm leading-relaxed text-pink-900">
+                  {mission.liveSandboxFallback.detail}
+                </p>
+              )}
+              {mission.liveSandboxFallback?.action && (
+                <div className="mt-3 rounded-2xl border border-pink-200 bg-white/80 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-pink-700">
+                    What to do next
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-pink-900">
+                    {mission.liveSandboxFallback.action}
+                  </p>
+                </div>
+              )}
+              <p className="mt-3 text-xs font-semibold leading-relaxed text-pink-800">
+                Live calls use ElevenLabs outbound telephony; changing the app&apos;s Twilio account or TWILIO_* variables alone will not affect this path. Update the phone number linked inside ElevenLabs when changing the outbound Twilio provider account.
+              </p>
+              <p className="mt-2 text-xs text-pink-700">
+                Disclosed replay is filling only missing demo results. No arbitrary business or browser-supplied phone number was dialed.
+              </p>
+            </section>
           )}
 
           <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">

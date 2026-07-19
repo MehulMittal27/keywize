@@ -9,6 +9,10 @@ import {
   inspectLiveSandboxTelephony,
   liveSandboxTelephonyBlockingReason,
 } from "@/lib/liveSandboxConfig";
+import {
+  missingLiveSandboxConfigFallback,
+  unreadyTwilioPersonaFallback,
+} from "@/lib/liveSandboxFallback";
 import type { ElevenLabsCallPayload } from "@/lib/types";
 
 /**
@@ -18,14 +22,23 @@ import type { ElevenLabsCallPayload } from "@/lib/types";
 export function GET() {
   const status = getLiveSandboxConfigStatus();
   const telephony = inspectLiveSandboxTelephony(process.env);
+  const telephonyBlocked = Boolean(
+    liveSandboxTelephonyBlockingReason(telephony)
+  );
+  const blockingDiagnostic = !status.configured
+    ? missingLiveSandboxConfigFallback(status)
+    : telephonyBlocked
+      ? unreadyTwilioPersonaFallback()
+      : null;
   return NextResponse.json(
     {
       mode: "live_sandbox",
       configured: status.configured,
-      callReady:
-        status.configured && !liveSandboxTelephonyBlockingReason(telephony),
+      callReady: status.configured && !telephonyBlocked,
       missingEnvNames: status.missingEnvNames,
       telephony,
+      blockingDiagnostic,
+      diagnosticsVersion: "live-sandbox-fallback-v2",
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -90,13 +103,18 @@ export async function POST(request: NextRequest) {
   const result = await initiateSandboxCall(mission, call);
   if (!result.ok) {
     if (body.role === "closer") {
-      activateNegotiationFallback(mission, result.reason);
+      activateNegotiationFallback(mission, result.fallback);
     } else {
-      activateReliableFallback(mission, result.reason);
+      activateReliableFallback(mission, result.fallback);
     }
     setMission(mission);
     return NextResponse.json(
-      { callInitiated: false, fallbackStarted: true, message: result.reason },
+      {
+        callInitiated: false,
+        fallbackStarted: true,
+        message: result.fallback.detail,
+        fallback: result.fallback,
+      },
       { status: 200 }
     );
   }
