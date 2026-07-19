@@ -40,7 +40,20 @@ After changing `NEXT_PUBLIC_APP_URL` for existing agents, choose one path delibe
 
 Changing `NEXT_PUBLIC_APP_URL` locally does not retarget tools already stored by ElevenLabs.
 
-The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block and configures platform guardrails under `platform_settings.guardrails`. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
+## Applying prompt and guardrail changes
+
+Editing the prompt files or create script changes only this repository. Existing agents in ElevenLabs keep their old prompts, first messages, model settings, and guardrails until they are updated or replaced.
+
+After a prompt or guardrail change:
+
+1. Run `node scripts/create-elevenlabs-agents.mjs --dry-run` to validate the local payload without contacting ElevenLabs.
+2. For existing agents, update each agent's prompt, role-specific first message, model settings, and platform guardrails in the ElevenLabs dashboard or through a deliberate API update while preserving its current agent ID and tool configuration.
+3. Alternatively, run the create script without `--dry-run` only when a fresh set of agents is intended. It is create-only, so this path creates three new agents and saves their new IDs locally.
+4. Confirm that the application references the intended Intake agent and that server-side Caller and Closer flows reference the intended agents before retiring older configurations.
+
+Do not rerun the create script against configured agents merely to apply a prompt edit unless duplicate agents are intentional. Updating an existing agent is the safer path when its IDs, tools, and integrations should stay unchanged.
+
+The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block, role-specific first messages, a moderate response temperature, and platform guardrails under `platform_settings.guardrails`. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
 
 ```txt
 ELEVENLABS_VOICE_ID=
@@ -63,6 +76,7 @@ Every generated agent payload should include:
   - Staying in the assigned Keywize role
   - No invented vendor quotes, fake leverage, fake authorization, or fake proof status
   - No lock-bypass, picking, drilling, disabling, or access-control defeat instructions
+  - No coercion, user-pressure tactics, fake urgency or authority, or unauthorized commitments
 
 After creating agents, open each agent in the ElevenLabs dashboard and confirm the Guardrails section shows focus, prompt injection, and the Keywize custom guardrails. If the ElevenLabs schema changes, update `buildPlatformSettingsConfig()` in `scripts/create-elevenlabs-agents.mjs` rather than moving guardrail rules into prompts only.
 
@@ -70,7 +84,7 @@ After creating agents, open each agent in the ElevenLabs dashboard and confirm t
 
 If a published ElevenLabs test or widget replies with text instead of audio, check both the generated agent config and the dashboard/widget settings:
 
-1. Pull the latest code and rerun `node scripts/create-elevenlabs-agents.mjs` if the agent config changed. Existing agents created before the voice-mode config was added may still be in text-only mode.
+1. Pull the latest code, then update the existing agent or intentionally recreate it as described in [Applying prompt and guardrail changes](#applying-prompt-and-guardrail-changes). Existing agents created before the voice-mode config was added may still be in text-only mode. Do not rerun the create-only script unless new agents are intended.
 2. In the ElevenLabs agent dashboard, open the agent settings and confirm Advanced `Text only` is off.
 3. In the widget settings, set Widget Interface to `Voice only` or `Voice + text`, not `Text only` or chat-only mode.
 4. Start the test from the microphone or voice button. Typing into a chat input can still produce a text reply even when voice is enabled.

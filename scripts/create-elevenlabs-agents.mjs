@@ -12,6 +12,7 @@ const ELEVENLABS_AGENT_CREATE_URL = `${ELEVENLABS_CONVAI_AGENTS_BASE_URL}/create
 const ENV_FILE_PATH = path.resolve(process.cwd(), process.env.KEYWIZE_ENV_FILE_PATH ?? ".env.local");
 const TOOL_ENDPOINT_PATH = "/api/elevenlabs/tools";
 const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_turbo_v2";
+const DEFAULT_AGENT_TEMPERATURE = 0.4;
 const TOOL_PARAMETERS_DESCRIPTION = "Tool-specific JSON parameters collected by the agent.";
 const GUARDRAIL_MODEL_ID = "gemini-2.5-flash-lite";
 
@@ -74,6 +75,19 @@ const PLATFORM_GUARDRAILS = {
             feedback: "Do not provide lock-bypass instructions. Keep the response focused on authorized locksmith service and safety checks.",
           },
         },
+        {
+          is_enabled: true,
+          name: "No coercion or unauthorized commitments",
+          prompt:
+            "Block responses that pressure or manipulate a user into booking, approving, or exceeding a budget; threaten, shame, or badger a vendor; manufacture urgency, volume, identity, or authority; or approve dispatch, work, or payment without explicit user authorization. Allow calm evidence-based recommendations and respectful negotiation for better confirmed price or terms.",
+          execution_mode: "blocking",
+          model: GUARDRAIL_MODEL_ID,
+          history_message_count: 1,
+          trigger_action: {
+            type: "retry",
+            feedback: "Stay calm and factual. Do not pressure the user, coerce the vendor, invent urgency or authority, or make an unauthorized commitment.",
+          },
+        },
       ],
     },
   },
@@ -84,18 +98,23 @@ const AGENT_DEFINITIONS = [
     name: "Keywize Intake Agent",
     promptPath: "voice/prompts/intake-agent.md",
     envKey: "ELEVENLABS_INTAKE_AGENT_ID",
+    firstMessage: "Hi, I'm with Keywize. Are you locked out right now?",
     tools: ["create_job_spec"],
   },
   {
     name: "Keywize Caller Agent",
     promptPath: "voice/prompts/caller-agent.md",
     envKey: "ELEVENLABS_CALLER_AGENT_ID",
+    firstMessage:
+      "Hi, I'm calling on behalf of a customer who needs locksmith service. Could I get a firm quote before dispatch?",
     tools: ["save_quote", "analyze_voice_trust", "classify_vendor_tone"],
   },
   {
     name: "Keywize Closer Agent",
     promptPath: "voice/prompts/closer-agent.md",
     envKey: "ELEVENLABS_CLOSER_AGENT_ID",
+    firstMessage:
+      "Hi, I'm following up on the locksmith quote for this customer. Is now a good time?",
     tools: ["update_negotiation"],
   },
 ];
@@ -354,9 +373,24 @@ function validateElevenLabsGuardrails(payloads) {
     }
 
     const customConfigs = guardrails.custom?.config?.configs;
+    const requiredCustomGuardrails = [
+      "No private reasoning leakage",
+      "Stay in assigned Keywize role",
+      "No fabricated quotes or authorization",
+      "No unsafe lock bypass instructions",
+      "No coercion or unauthorized commitments",
+    ];
+    const configuredNames = new Set(
+      Array.isArray(customConfigs)
+        ? customConfigs.filter((config) => config?.is_enabled === true).map((config) => config.name)
+        : [],
+    );
+    const missingGuardrails = requiredCustomGuardrails.filter((guardrailName) => !configuredNames.has(guardrailName));
 
-    if (!Array.isArray(customConfigs) || customConfigs.length < 4) {
-      throw new Error(`${name} must configure custom platform guardrails for Keywize role safety.`);
+    if (missingGuardrails.length > 0) {
+      throw new Error(
+        `${name} is missing required custom platform guardrails: ${missingGuardrails.join(", ")}.`,
+      );
     }
   }
 }
@@ -555,7 +589,7 @@ function buildPlatformSettingsConfig() {
   };
 }
 
-function buildAgentPayload({ name, prompt, tools }, webhookUrl, voiceModeConfig) {
+function buildAgentPayload({ name, prompt, firstMessage, tools }, webhookUrl, voiceModeConfig) {
   // Schema assumption: this is the current Conversational AI agent create shape.
   // Keep this isolated so updates are local if ElevenLabs changes field names.
   return {
@@ -566,9 +600,12 @@ function buildAgentPayload({ name, prompt, tools }, webhookUrl, voiceModeConfig)
       agent: {
         prompt: {
           prompt,
+          temperature: DEFAULT_AGENT_TEMPERATURE,
+          enable_reasoning_summary: false,
+          ignore_default_personality: true,
           tools: tools.map((toolName) => buildWebhookToolConfig(toolName, webhookUrl)),
         },
-        first_message: "Thanks for calling Keywize. I can help with your lockout.",
+        first_message: firstMessage,
       },
     },
   };
