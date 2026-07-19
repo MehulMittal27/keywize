@@ -35,10 +35,14 @@ export function calculateRiskScore(
   if (quote.dispatchFee === null) score += 20;
 
   // drilling mentioned before diagnosis
+  const normalizedDrillingPolicy = quote.drillingPolicy
+    .toLowerCase()
+    .replaceAll("-", " ")
+    .replaceAll("_", " ");
   const drillingFirst =
-    quote.drillingPolicy.toLowerCase().includes("drill") &&
-    !quote.drillingPolicy.toLowerCase().includes("no drill") &&
-    !quote.drillingPolicy.toLowerCase().includes("non-destructive");
+    normalizedDrillingPolicy.includes("drill") &&
+    !normalizedDrillingPolicy.includes("no drill") &&
+    !normalizedDrillingPolicy.includes("non destructive");
   if (drillingFirst) score += 25;
 
   // no company/vendor name on invoice (proxy: vendor name empty or generic)

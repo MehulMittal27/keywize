@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMission, setMission } from "@/lib/store";
+import { addMissionEvent } from "@/lib/missionEvents";
 
 /**
  * POST /api/missions/[id]/select-vendor
@@ -58,10 +59,11 @@ export async function POST(
 
   mission.selectedVendorId = body.vendorId;
   mission.status = "negotiating";
-  mission.callLog.push({
-    timestamp: new Date().toISOString(),
+  addMissionEvent(mission, {
     event: "vendor_selected",
-    details: `User selected ${selectedQuote.vendorName} for session 2 negotiation.`,
+    details: `User selected ${selectedQuote.vendorName} for negotiation. Dispatch remains unauthorized.`,
+    category: "negotiation",
+    vendorId: selectedQuote.vendorId,
   });
 
   setMission(mission);

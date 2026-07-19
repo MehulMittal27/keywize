@@ -19,6 +19,9 @@ function IntakePageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [step, setStep] = useState(1);
+  const [missionMode, setMissionMode] = useState<"reliable_demo" | "live_sandbox">(
+    "reliable_demo"
+  );
 
   const [form, setForm] = useState({
     caseType: "broken_key_inside_lock",
@@ -65,6 +68,7 @@ function IntakePageContent() {
           brokenKeyVisible: form.caseType === "broken_key_inside_lock",
           needRekey: form.caseType === "key_stolen",
           approvalRequiredAboveBudget: true,
+          mode: missionMode,
         }),
       });
 
@@ -72,8 +76,8 @@ function IntakePageContent() {
       const data = await res.json();
       router.push(`/mission/${data.id}`);
     } catch {
-      // Fallback: use mock mission for demo
-      router.push("/mission/mission-001");
+      setError("We could not create this mission. Your form is preserved so you can retry.");
+      setIsSubmitting(false);
     }
   };
 
@@ -359,6 +363,40 @@ function IntakePageContent() {
                     <span className="block text-gray-500">Budget Flexibility</span>
                     <span className="font-medium capitalize">{form.budgetFlexibility.replace(/_/g, " ")}</span>
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-3 text-sm font-semibold">Execution mode</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setMissionMode("reliable_demo")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      missionMode === "reliable_demo"
+                        ? "border-black bg-[#f0fbf7]"
+                        : "border-black/10 hover:border-black/30"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">Reliable Demo</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-gray-600">
+                      Disclosed simulated vendors with deterministic, state-backed results.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMissionMode("live_sandbox")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      missionMode === "live_sandbox"
+                        ? "border-black bg-[#fff3f5]"
+                        : "border-black/10 hover:border-black/30"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">Live Sandbox Proof</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-gray-600">
+                      Controlled team endpoints only, with visible reliable fallback.
+                    </span>
+                  </button>
                 </div>
               </div>
 

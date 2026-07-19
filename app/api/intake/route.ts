@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
-import type { IntakePayload, Mission, JobSpec } from "@/lib/types";
-import { setMission } from "@/lib/store";
-import { rankQuotes } from "@/lib/ranking";
-import { getDemoQuotesForMission } from "@/lib/mockData";
+import type { IntakePayload, JobSpec, MissionMode } from "@/lib/types";
+import { createMissionShell, startMission } from "@/lib/missionService";
 
 // Required fields with human-readable prompts
 const REQUIRED_FIELDS: (keyof IntakePayload)[] = [
@@ -35,7 +33,7 @@ const FIELD_PROMPTS: Partial<Record<keyof IntakePayload, string>> = {
 };
 
 export async function POST(request: NextRequest) {
-  let body: Partial<IntakePayload>;
+  let body: Partial<IntakePayload> & { mode?: MissionMode };
 
   try {
     body = await request.json();
@@ -94,45 +92,9 @@ export async function POST(request: NextRequest) {
     createdAt: new Date().toISOString(),
   };
 
-  const missionId = uuid();
-  const demoQuotes = getDemoQuotesForMission(missionId);
-
-  const mission: Mission = {
-    id: missionId,
-    jobSpec,
-    quotes: demoQuotes,
-    status: "quotes_collected",
-    callLog: [
-      {
-        timestamp: new Date().toISOString(),
-        event: "intake_complete",
-        details: `Case: ${jobSpec.caseType}. Max budget: $${jobSpec.maxPrice}.`,
-      },
-      {
-        timestamp: new Date().toISOString(),
-        event: "demo_calls_queued",
-        details: "Demo mode queued three mock locksmith calls.",
-      },
-      {
-        timestamp: new Date().toISOString(),
-        event: "quote_received",
-        details: "Speedy Lock & Key: starts at $39. High risk flagged.",
-      },
-      {
-        timestamp: new Date().toISOString(),
-        event: "quote_received",
-        details: "Neighborhood Locksmith: $130 all-in. Low risk.",
-      },
-      {
-        timestamp: new Date().toISOString(),
-        event: "quote_received",
-        details: "Premium Secure: $165 initial offer. Ready to negotiate.",
-      },
-    ],
-    recommendation: rankQuotes(demoQuotes, jobSpec),
-  };
-
-  setMission(mission);
+  const mode: MissionMode = body.mode === "live_sandbox" ? "live_sandbox" : "reliable_demo";
+  const mission = createMissionShell(uuid(), jobSpec, mode);
+  await startMission(mission);
 
   return NextResponse.json(mission, { status: 201 });
 }

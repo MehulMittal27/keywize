@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMission } from "@/lib/store";
+import { getMission, setMission } from "@/lib/store";
+import { advanceMissionOrchestration } from "@/lib/demoOrchestrator";
 
 export async function GET(
   _request: NextRequest,
@@ -12,5 +13,11 @@ export async function GET(
     return NextResponse.json({ error: "Mission not found" }, { status: 404 });
   }
 
-  return NextResponse.json(mission);
+  if (advanceMissionOrchestration(mission)) {
+    setMission(mission);
+  }
+
+  return NextResponse.json(mission, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

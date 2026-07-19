@@ -13,7 +13,8 @@ const RISK_ORDER: Record<RiskLevel, number> = { Low: 0, Medium: 1, High: 2 };
  */
 export function rankQuotes(
   quotes: Quote[],
-  jobSpec: Pick<JobSpec, "maxPrice" | "budgetFlexibility">
+  jobSpec: Pick<JobSpec, "maxPrice" | "budgetFlexibility"> &
+    Partial<Pick<JobSpec, "urgency">>
 ): RankingResult {
   const eligible = quotes.filter((q) => q.quoteConfidence !== "declined");
   const disqualified = quotes.filter((q) => q.quoteConfidence === "declined");
@@ -45,11 +46,33 @@ export function rankQuotes(
       (q) => q.totalEstimate !== null && q.totalEstimate <= jobSpec.maxPrice
     );
     recommended = withinBudget[0] ?? sorted[0];
+
+    // In an active lockout, a firm low-risk quote under the hard ceiling may
+    // trade a small premium for a materially faster arrival.
+    if (jobSpec.urgency === "locked_out_now") {
+      const urgentCandidates = withinBudget.filter(
+        (q) =>
+          q.riskLevel !== "High" &&
+          q.isTotalAllIn &&
+          q.quoteConfidence === "firm_before_arrival" &&
+          q.etaMinutes !== null
+      );
+      recommended =
+        urgentCandidates.sort(
+          (a, b) =>
+            (a.etaMinutes ?? Infinity) - (b.etaMinutes ?? Infinity) ||
+            (a.totalEstimate ?? Infinity) - (b.totalEstimate ?? Infinity)
+        )[0] ?? recommended;
+    }
   } else {
     recommended = sorted[0];
   }
 
-  // ─── Build plain-English reasons ──────────────────────────────────────────
+  const ranked = recommended
+    ? [recommended, ...sorted.filter((quote) => quote.id !== recommended?.id)]
+    : sorted;
+
+  // Build plain-English reasons
   const reasons: string[] = [];
 
   if (recommended) {
@@ -103,5 +126,5 @@ export function rankQuotes(
     }
   }
 
-  return { ranked: sorted, recommended, reasons, disqualified };
+  return { ranked, recommended, reasons, disqualified };
 }

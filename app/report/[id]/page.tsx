@@ -1,162 +1,223 @@
-import { mockQuotes } from "../../../lib/mockData";
-import { getMission } from "../../../lib/store";
-import { VoiceTrustBadge } from "../../../components/VoiceTrustBadge";
-import { NegotiationPlaybook } from "../../../components/NegotiationPlaybook";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { QuoteApproval } from "@/components/QuoteApproval";
+import { VoiceTrustBadge } from "@/components/VoiceTrustBadge";
+import { getMission } from "@/lib/store";
+
+function money(value: number | null): string {
+  return value === null ? "No firm total" : `$${value}`;
+}
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quotes = getMission(id)?.quotes ?? mockQuotes;
-  const premium = quotes.find((quote) => quote.vendorName === "Premium Secure") ?? mockQuotes[2];
-  const neighborhood = quotes.find((quote) => quote.vendorName === "Neighborhood Locksmith") ?? mockQuotes[1];
-  const speedy = quotes.find((quote) => quote.vendorName === "Speedy Lock & Key") ?? mockQuotes[0];
-  const finalPrice = premium.priceOrTermsChanged ? premium.totalEstimate ?? 145 : 145;
-  const savings = Math.max(0, 165 - finalPrice);
+  const mission = getMission(id);
+  if (!mission) notFound();
+
+  const recommendation = mission.recommendation;
+  const winner = recommendation?.recommended;
+  const negotiation = mission.negotiation;
+  const reportReady = ["terms_secured", "awaiting_approval", "approved"].includes(
+    mission.status
+  );
+
+  if (!reportReady || !winner || !negotiation?.afterPrice) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fbfaf7] px-6 text-center text-[#111111]">
+        <div className="max-w-md rounded-3xl border border-black/5 bg-white p-8 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Report pending</p>
+          <h1 className="mt-3 font-serif text-3xl">Terms are not secured yet.</h1>
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+            The report appears only after a negotiation result is stored in the mission state.
+          </p>
+          <Link href={`/mission/${id}`} className="mt-6 inline-block rounded-full bg-black px-6 py-3 text-sm font-semibold text-white">
+            Return to mission
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const fallbackQuote = mission.quotes.find(
+    (quote) => quote.id === negotiation.leverage.sourceQuoteId
+  );
+  const highRiskQuote = mission.quotes.find((quote) => quote.riskLevel === "High");
+  const alternatives = recommendation.ranked.filter((quote) => quote.id !== winner.id);
+  const savings = Math.max(0, negotiation.beforePrice - negotiation.afterPrice);
+  const latestSignal = winner.voiceTrustSignals.at(-1);
 
   return (
-    <div className="min-h-screen bg-[#fbfaf7] text-[#111111] font-sans pb-24">
-      <nav className="flex items-center justify-between px-8 py-6 max-w-5xl mx-auto border-b border-black/5">
-        <div className="flex items-center gap-2 cursor-pointer">
-          <div className="w-6 h-6 bg-[#111111] rounded flex items-center justify-center">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
-            </svg>
-          </div>
-          <span className="font-bold tracking-tight">Keywize</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link href="/demo" className="text-sm font-medium hover:underline">Demo Panel</Link>
-          <span className="px-3 py-1 bg-black text-white text-xs font-bold rounded-full uppercase tracking-wide">Report Ready</span>
+    <div className="min-h-screen bg-[#fbfaf7] pb-24 text-[#111111]">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between border-b border-black/5 px-6 py-5">
+        <Link href="/" className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-black text-sm text-white">⌁</span>
+          <span className="font-bold">Keywize</span>
+        </Link>
+        <div className="flex items-center gap-3">
+          <Link href={`/mission/${id}`} className="text-sm font-semibold text-gray-600 hover:text-black">
+            Mission events
+          </Link>
+          <span className="rounded-full bg-black px-3 py-1.5 text-xs font-bold text-white">Terms secured</span>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto mt-12 px-6">
-        <header className="mb-12 text-center max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#30a985]/10 text-[#30a985] rounded-full text-xs font-bold tracking-wide uppercase mb-6 border border-[#30a985]/20">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            Recommendation Secured
+      <main className="mx-auto max-w-6xl px-6 pt-12">
+        <header className="mx-auto mb-12 max-w-3xl text-center">
+          <div className="mb-5 flex flex-wrap justify-center gap-2">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+              {mission.mode === "reliable_demo"
+                ? "Reliable Demo - simulated vendors"
+                : mission.fallbackReason
+                  ? "Live Sandbox - reliable replay fallback"
+                  : "Live Sandbox - controlled calls"}
+            </span>
+            <span className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold">
+              Awaiting quote approval
+            </span>
           </div>
-          <h1 className="text-4xl lg:text-5xl font-serif leading-tight tracking-tight mb-4">
-            We found a safe locksmith under your $150 budget.
+          <h1 className="font-serif text-4xl leading-tight tracking-tight sm:text-6xl">
+            The fastest safe option is now under your ${mission.jobSpec.maxPrice} maximum.
           </h1>
-          <p className="text-gray-600 text-lg">
-            3 local vendors contacted. 1 flagged for hidden-fee risk. We negotiated a $20 discount on the fastest option.
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-gray-600">
+            {mission.quotes.length} structured quotes stored. Vendor C improved by ${savings}. Vendor B remains the transparent fallback, and Vendor A is flagged from stored evidence.
           </p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Winner Card */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-[32px] p-8 shadow-xl shadow-black/5 border-2 border-[#111111] relative overflow-hidden">
-               <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-[#30a985] to-teal-200 blur-3xl opacity-20 pointer-events-none" />
-
-               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                 <div>
-                   <h2 className="text-2xl font-bold flex items-center gap-3">
-                     {premium.vendorName} <span className="text-xl">🏆</span>
-                   </h2>
-                   <p className="text-gray-500 font-medium mt-1">Best blend of speed and verified pricing.</p>
-                 </div>
-                 <div className="text-left sm:text-right">
-                   <div className="text-4xl font-serif font-bold text-[#30a985]">${finalPrice}</div>
-                   <div className="text-sm font-semibold uppercase tracking-wide mt-1">{premium.etaMinutes ?? 15} Min ETA</div>
-                 </div>
-               </div>
-
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                 <div>
-                   <div className="text-xs text-gray-500 font-medium">All-in Price</div>
-                   <div className="font-semibold text-green-700">Yes</div>
-                 </div>
-                 <div>
-                   <div className="text-xs text-gray-500 font-medium">No-drill first</div>
-                   <div className="font-semibold text-blue-700">Confirmed</div>
-                 </div>
-                 <div>
-                   <div className="text-xs text-gray-500 font-medium">ID Req.</div>
-                   <div className="font-semibold">Yes</div>
-                 </div>
-                 <div>
-                   <div className="text-xs text-gray-500 font-medium">Warranty</div>
-                   <div className="font-semibold">{premium.warranty ?? "1 year"}</div>
-                 </div>
-               </div>
-
-               {/* Success-Fee Pricing Block */}
-               <div className="bg-[#111111] text-white p-5 rounded-2xl mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-                 <div>
-                   <h3 className="font-bold text-lg text-[#30a985]">We saved you ${savings}.00</h3>
-                   <p className="text-sm text-gray-400">Our AI negotiated the price down from $165 to ${finalPrice}.</p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Keywize 20% Success Fee</p>
-                   <p className="font-bold text-2xl font-serif">${(savings * 0.2).toFixed(2)}</p>
-                 </div>
-               </div>
-
-               <div className="space-y-4">
-                 <h3 className="font-semibold flex items-center gap-2">
-                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
-                   Transcript Evidence
-                 </h3>
-                 <div className="bg-[#fbfaf7] p-5 rounded-2xl border border-black/5 space-y-3">
-                   <div className="text-sm"><span className="font-bold text-[#111111]">Keywize:</span> What is the total price?</div>
-                   <div className="text-sm"><span className="font-bold text-[#30a985]">Premium Secure:</span> {premium.transcriptEvidence[0] ?? "Usually it is $165 for emergency extraction."}</div>
-                   <div className="text-sm"><span className="font-bold text-[#111111]">Keywize:</span> Can you do ${finalPrice}? I have another quote for $130 but you are faster.</div>
-                   <div className="text-sm flex items-start gap-3">
-                     <span className="font-bold text-[#30a985] whitespace-nowrap">Premium Secure:</span>
-                     <div>
-                       <span className="bg-yellow-100 px-1 rounded">{premium.transcriptEvidence.find((line) => line.includes("$145")) ?? "Um, we can drop it to $145 if you book right now."}</span>
-                       <div className="mt-2"><VoiceTrustBadge level="Medium" /></div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-
-               <NegotiationPlaybook tactics={[
-                 "Anchored price against real competitor quote ($130)",
-                 "Traded immediate booking for $20 discount",
-                 "Verified all-in status to prevent dispatch scams"
-               ]} />
-
-               <div className="mt-8 flex gap-4">
-                 <button className="flex-1 bg-[#111111] text-white py-4 rounded-full font-medium shadow-xl shadow-black/10 hover:bg-gray-800 transition-all active:scale-95 text-lg">
-                   Approve & Dispatch
-                 </button>
-                 <button className="px-6 py-4 rounded-full font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-all">
-                   Call me instead
-                 </button>
-               </div>
-            </div>
-          </div>
-
-          {/* Alternatives Column */}
-          <div className="lg:col-span-1 space-y-4">
-            <h3 className="font-serif text-xl mb-4">Other Quotes</h3>
-
-            {/* Vendor B - Honest but slow */}
-            <div className="bg-white p-5 rounded-2xl border border-black/5 shadow-sm opacity-80 hover:opacity-100 transition-opacity cursor-pointer">
-               <div className="flex justify-between items-start mb-2">
-                 <h4 className="font-bold">Neighborhood Locksmith</h4>
-                 <span className="font-bold">${neighborhood.totalEstimate ?? 130}</span>
-               </div>
-               <p className="text-sm text-gray-500 mb-3">{neighborhood.etaMinutes ?? 30} min ETA • No-drill first</p>
-               <div className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded inline-block font-medium">{neighborhood.riskLevel} Risk (Score: {neighborhood.riskScore}/100)</div>
+        <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
+          <section className="rounded-[34px] border-2 border-black bg-white p-7 shadow-xl shadow-black/5 sm:p-9">
+            <div className="flex flex-col justify-between gap-5 border-b border-black/5 pb-7 sm:flex-row sm:items-start">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Recommended from stored ranking</p>
+                <h2 className="mt-2 font-serif text-3xl font-semibold">{winner.vendorName}</h2>
+                <p className="mt-2 text-sm text-gray-500">
+                  Fastest eligible all-in quote within the hard budget.
+                </p>
+              </div>
+              <div className="text-left sm:text-right">
+                <div className="flex items-baseline gap-2 sm:justify-end">
+                  <span className="font-serif text-xl text-gray-400 line-through">${negotiation.beforePrice}</span>
+                  <span className="font-serif text-5xl font-bold text-emerald-600">${negotiation.afterPrice}</span>
+                </div>
+                <p className="mt-1 text-sm font-semibold">{winner.etaMinutes} minute ETA retained</p>
+              </div>
             </div>
 
-            {/* Vendor A - Scam */}
-            <div className="bg-white p-5 rounded-2xl border-2 border-pink-100 shadow-sm opacity-60">
-               <div className="flex justify-between items-start mb-2">
-                 <h4 className="font-bold">Speedy Lock & Key</h4>
-                 <span className="font-bold text-gray-400">?</span>
-               </div>
-               <p className="text-sm text-gray-500 mb-3">20 min ETA • Refused total</p>
-               <div className="text-xs bg-pink-50 text-pink-700 px-2 py-1 rounded inline-block font-medium mb-3">{speedy.riskLevel} Risk (Score: {speedy.riskScore}/100)</div>
-               <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-                 &ldquo;{speedy.transcriptEvidence[0] ?? "It starts at $39, the tech will tell you the rest."}&rdquo;
-               </div>
+            <div className="my-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-2xl bg-[#f8f7f3] p-4">
+                <p className="text-xs text-gray-500">All-in</p>
+                <p className="mt-1 font-semibold text-emerald-700">{winner.isTotalAllIn ? "Confirmed" : "Not confirmed"}</p>
+              </div>
+              <div className="rounded-2xl bg-[#f8f7f3] p-4">
+                <p className="text-xs text-gray-500">Risk</p>
+                <p className="mt-1 font-semibold">{winner.riskLevel} · {winner.riskScore}/100</p>
+              </div>
+              <div className="rounded-2xl bg-[#f8f7f3] p-4">
+                <p className="text-xs text-gray-500">Entry policy</p>
+                <p className="mt-1 font-semibold">Non-destructive first</p>
+              </div>
+              <div className="rounded-2xl bg-[#f8f7f3] p-4">
+                <p className="text-xs text-gray-500">Proof</p>
+                <p className="mt-1 font-semibold">Required</p>
+              </div>
             </div>
-          </div>
+
+            <div className="rounded-3xl bg-black p-6 text-white">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Negotiation persisted</p>
+                  <h3 className="mt-1 font-serif text-2xl">${negotiation.beforePrice} → ${negotiation.afterPrice} all-in</h3>
+                </div>
+                <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold">No extra keys claimed</span>
+              </div>
+              <ul className="mt-5 grid gap-2 text-sm text-gray-300 sm:grid-cols-2">
+                {negotiation.changedTerms.map((term) => (
+                  <li key={term} className="flex gap-2"><span className="text-emerald-300">✓</span>{term}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-8">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-serif text-xl font-semibold">Transcript evidence</h3>
+                {latestSignal && <VoiceTrustBadge level={latestSignal.trustLevel} />}
+              </div>
+              <div className="mt-4 space-y-4 rounded-3xl border border-black/5 bg-[#fbfaf7] p-5 text-sm leading-relaxed">
+                <p><strong>Initial quote:</strong> &ldquo;{winner.transcriptEvidence[0]}&rdquo;</p>
+                <p><strong>Stored leverage:</strong> &ldquo;{negotiation.leverage.evidence[0]}&rdquo;</p>
+                <p className="rounded-xl bg-emerald-100/70 p-3"><strong>Final confirmation:</strong> &ldquo;{negotiation.transcriptEvidence[0]}&rdquo;</p>
+                <p className="text-xs text-gray-500">
+                  VoiceTrust treats the moderate pause and filler as uncertainty only. The exact confirmation and structured terms are the evidence.
+                </p>
+              </div>
+            </div>
+
+            <QuoteApproval
+              missionId={mission.id}
+              vendorName={winner.vendorName}
+              total={negotiation.afterPrice}
+              initiallyApproved={mission.approval?.status === "approved"}
+            />
+          </section>
+
+          <aside className="space-y-5">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">Ranked alternatives</p>
+              <h2 className="mt-1 font-serif text-2xl font-semibold">Why this ranking</h2>
+            </div>
+
+            {fallbackQuote && (
+              <article className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Leverage and fallback</p>
+                    <h3 className="mt-1 font-bold">{fallbackQuote.vendorName}</h3>
+                  </div>
+                  <p className="font-serif text-2xl font-bold">{money(fallbackQuote.totalEstimate)}</p>
+                </div>
+                <p className="mt-3 text-sm text-gray-600">{fallbackQuote.etaMinutes} min ETA · {fallbackQuote.drillingPolicy}</p>
+                <blockquote className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900">
+                  &ldquo;{fallbackQuote.transcriptEvidence[0]}&rdquo;
+                </blockquote>
+              </article>
+            )}
+
+            {highRiskQuote && (
+              <article className="rounded-3xl border-2 border-pink-100 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-pink-600">High-risk evidence</p>
+                    <h3 className="mt-1 font-bold">{highRiskQuote.vendorName}</h3>
+                  </div>
+                  <p className="font-serif text-xl font-bold text-gray-400">Starts at ${highRiskQuote.dispatchFee}</p>
+                </div>
+                <p className="mt-3 text-sm text-gray-600">No firm total · risk {highRiskQuote.riskScore}/100</p>
+                <blockquote className="mt-3 rounded-xl bg-pink-50 p-3 text-xs text-pink-900">
+                  &ldquo;{highRiskQuote.transcriptEvidence[0]}&rdquo;
+                </blockquote>
+              </article>
+            )}
+
+            <div className="rounded-3xl border border-black/5 bg-white p-5">
+              <h3 className="font-semibold">Stored ranking</h3>
+              <ol className="mt-3 space-y-3">
+                {recommendation.ranked.map((quote, index) => (
+                  <li key={quote.id} className="flex items-center gap-3 text-sm">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black text-xs font-bold text-white">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{quote.vendorName}</span>
+                    <span className="font-semibold">{money(quote.totalEstimate)}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="rounded-3xl bg-[#e8faf3] p-5 text-sm leading-relaxed text-emerald-950">
+              <p className="font-bold">Safety reminder</p>
+              <p className="mt-2">Approval is not dispatch. Show proof at the door and reject any drilling, changed scope, or price change that was not explained and approved first.</p>
+            </div>
+
+            {alternatives.length === 0 && (
+              <p className="text-sm text-gray-500">No other eligible quotes were stored.</p>
+            )}
+          </aside>
         </div>
       </main>
     </div>

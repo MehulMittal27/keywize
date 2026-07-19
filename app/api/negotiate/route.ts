@@ -1,25 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { addMissionEvent } from "@/lib/missionEvents";
+import { selectStoredLeverage } from "@/lib/leverage";
+import { startLiveSandboxNegotiation } from "@/lib/liveSandbox";
 import { getMission, setMission } from "@/lib/store";
-import { calculateRiskScore } from "@/lib/riskScore";
-import { rankQuotes } from "@/lib/ranking";
+import type { VendorCall } from "@/lib/types";
 
-/**
- * POST /api/negotiate
- *
- * Simulates the negotiation step.
- * Finds "SpeedKey Express" (or the highest-priced over-budget quote) and:
- *   - Drops total to $145
- *   - Marks isTotalAllIn = true
- *   - Adds 2 keys
- *   - Sets priceOrTermsChanged = true
- *   - Appends transcript evidence and call log entry
- *   - Re-scores risk and re-ranks all quotes
- *
- * Body: { missionId: string }
- */
 export async function POST(request: NextRequest) {
-  let body: { missionId: string };
-
+  let body: { missionId?: string; targetQuoteId?: string };
   try {
     body = await request.json();
   } catch {
@@ -34,78 +21,108 @@ export async function POST(request: NextRequest) {
   if (!mission) {
     return NextResponse.json({ error: "Mission not found" }, { status: 404 });
   }
-
-  if (mission.quotes.length === 0) {
+  if (mission.status !== "quotes_ready" && mission.status !== "awaiting_vendor_selection") {
     return NextResponse.json(
-      { error: "No quotes available to negotiate" },
+      { error: "Quotes are not ready for negotiation", currentStatus: mission.status },
+      { status: 409 }
+    );
+  }
+
+  const explicitTarget = body.targetQuoteId
+    ? mission.quotes.find((quote) => quote.id === body.targetQuoteId)
+    : undefined;
+  const fastestOverBudget = mission.quotes
+    .filter(
+      (quote) =>
+        quote.vendorId &&
+        quote.totalEstimate !== null &&
+        quote.totalEstimate > mission.jobSpec.maxPrice &&
+        quote.isTotalAllIn &&
+        quote.riskLevel !== "High"
+    )
+    .sort(
+      (a, b) =>
+        (a.etaMinutes ?? Infinity) - (b.etaMinutes ?? Infinity)
+    )[0];
+  const target = explicitTarget ?? fastestOverBudget;
+
+  if (!target?.vendorId || target.totalEstimate === null) {
+    return NextResponse.json(
+      { error: "No eligible fastest option is available to negotiate" },
+      { status: 422 }
+    );
+  }
+  if (target.riskLevel === "High" || !target.isTotalAllIn) {
+    return NextResponse.json(
+      { error: "The selected quote is not eligible for safe negotiation" },
       { status: 422 }
     );
   }
 
-  // Find the target vendor: use the user's selection first, then fall back to the
-  // highest over-budget quote (for backward compat with the demo reset flow).
-  const maxPrice = mission.jobSpec.maxPrice;
-  const target =
-    (mission.selectedVendorId
-      ? mission.quotes.find((q) => q.id === mission.selectedVendorId)
-      : undefined) ??
-    mission.quotes
-      .filter((q) => q.totalEstimate !== null && q.totalEstimate > maxPrice)
-      .sort((a, b) => (b.totalEstimate ?? 0) - (a.totalEstimate ?? 0))[0];
-
-  if (!target) {
+  const leverage = selectStoredLeverage(mission, target.id);
+  if (!leverage) {
     return NextResponse.json(
-      { error: "No over-budget vendor found to negotiate with" },
+      { error: "No stored, evidence-backed all-in quote is eligible as leverage" },
       { status: 422 }
     );
   }
 
-  const negotiationLine =
-    `I have another confirmed quote at $130 all-in with no-drill first. ` +
-    `You are faster — can you get to $145 all-in or include two keys?`;
+  mission.selectedVendorId = target.id;
+  mission.negotiation = {
+    targetQuoteId: target.id,
+    targetVendorId: target.vendorId,
+    status: "in_progress",
+    beforePrice: target.totalEstimate,
+    changedTerms: [],
+    leverage,
+    transcriptEvidence: [],
+    startedAt: new Date().toISOString(),
+    fallbackUsed: false,
+  };
+  mission.status = "negotiating";
+  mission.orchestration.negotiationCursor = 0;
+  mission.orchestration.nextActionAt = new Date(Date.now() + 250).toISOString();
+  delete mission.orchestration.liveFallbackAt;
 
-  const vendorReply =
-    `You know what, I can do $145 all-in and I'll throw in two keys. ` +
-    `Let's get you back inside quickly.`;
-
-  // Update the vendor quote
-  const idx = mission.quotes.findIndex((q) => q.id === target!.id);
-  const updated = { ...mission.quotes[idx] };
-  updated.totalEstimate = 145;
-  updated.isTotalAllIn = true;
-  updated.keysIncluded = 2;
-  updated.priceOrTermsChanged = true;
-  updated.transcriptEvidence = [
-    ...updated.transcriptEvidence,
-    `"${vendorReply}"`,
+  const closerCall: VendorCall = {
+    id: `${mission.id}-closer-${target.vendorId}`,
+    vendorId: target.vendorId,
+    vendorName: target.vendorName,
+    role: "closer",
+    status: "queued",
+    mode: mission.mode,
+    fallbackUsed: false,
+  };
+  mission.vendorCalls = [
+    ...mission.vendorCalls.filter((call) => call.role !== "closer"),
+    closerCall,
   ];
-  updated.transcript =
-    updated.transcript +
-    `\n\nNEGOTIATION:\nAgent: ${negotiationLine}\nVendor: ${vendorReply}`;
 
-  // Re-score risk after improvement
-  const [newScore, newLevel] = calculateRiskScore(updated, mission.jobSpec);
-  updated.riskScore = newScore;
-  updated.riskLevel = newLevel;
-
-  mission.quotes[idx] = updated;
-
-  mission.callLog.push({
-    timestamp: new Date().toISOString(),
-    event: "negotiation_complete",
-    details: `${updated.vendorName} agreed: $145 all-in + 2 keys`,
+  addMissionEvent(mission, {
+    event: "leverage_selected",
+    details: `${leverage.vendorName}'s stored $${leverage.total} all-in, no-drill-first quote was validated as leverage.`,
+    vendorId: leverage.sourceVendorId,
+    category: "negotiation",
+  });
+  addMissionEvent(mission, {
+    event: "negotiation_started",
+    details: `Negotiating the fastest option from $${target.totalEstimate} toward $145 all-in. This does not authorize dispatch.`,
+    vendorId: target.vendorId,
+    category: "negotiation",
   });
 
-  // Re-rank all quotes
-  mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-  mission.status = "negotiating";
-
+  if (mission.mode === "live_sandbox") {
+    mission.orchestration.replayActive = false;
+    await startLiveSandboxNegotiation(mission);
+  } else {
+    mission.orchestration.replayActive = true;
+  }
   setMission(mission);
 
   return NextResponse.json({
     mission,
-    negotiatedQuote: updated,
-    negotiationLine,
-    vendorReply,
+    negotiationStarted: true,
+    targetQuoteId: target.id,
+    leverageQuoteId: leverage.sourceQuoteId,
   });
 }

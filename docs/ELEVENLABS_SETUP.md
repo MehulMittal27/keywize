@@ -126,6 +126,39 @@ Do not extend this route with Caller or Closer selection. Any future browser age
 
 Some existing ElevenLabs agent configurations may not stream the full server-tool result to browser clients. In that case, the voice session still works, but automatic navigation cannot be confirmed by the browser and the manual form remains the MVP fallback. The next bridge is to enable `agent_tool_response_full_payload` in the Intake agent's client-event configuration during a deliberate agent configuration update, or add a dedicated client navigation tool that receives the mission ID after `create_job_spec` succeeds. Do not patch a live agent just to test the UI, and ensure the webhook and browser use the same Keywize deployment so the in-memory MVP mission is available to the mission page.
 
+## Judge demo execution modes
+
+The manual intake defaults to **Reliable Demo - simulated vendors**. It creates an empty mission shell, then the server advances a deterministic state machine as the mission page polls stored state. Vendor A, B, and C quotes are persisted one at a time. The final C negotiation uses the stored Vendor B quote as leverage. No external call is required for this judged path.
+
+To run it:
+
+1. Start the app with `npm run dev`.
+2. Open `/intake` and leave **Reliable Demo** selected.
+3. Submit the authorized form, wait for three stored quote cards, then select **Negotiate fastest option**.
+4. Open the report only after the mission reaches **Terms secured**.
+
+The optional **Live Sandbox Proof** uses ElevenLabs' documented server-side Twilio outbound endpoint. It is restricted to a private registry of team-controlled vendor persona destinations. Configure these server-only placeholders:
+
+```txt
+ELEVENLABS_API_KEY=
+ELEVENLABS_CALLER_AGENT_ID=
+ELEVENLABS_CLOSER_AGENT_ID=
+ELEVENLABS_SANDBOX_PHONE_NUMBER_ID=
+ELEVENLABS_ENVIRONMENT=
+KEYWIZE_SANDBOX_VENDOR_A_PHONE=
+KEYWIZE_SANDBOX_VENDOR_B_PHONE=
+KEYWIZE_SANDBOX_VENDOR_C_PHONE=
+KEYWIZE_LIVE_SANDBOX_FALLBACK_MS=20000
+```
+
+Never prefix these names with `NEXT_PUBLIC_`. The browser sends only a mission ID, vendor slot, and role. `/api/elevenlabs/call` rejects raw destination numbers, and the server selects the role-specific agent and allowlisted destination. Caller receives job and service-area facts but not the user's budget or competing quote. Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
+
+If any live configuration is absent, call initiation fails, or correlated tool results do not arrive before the timeout, the same mission visibly switches to the reliable simulated replay. The UI keeps the `Live Sandbox` badge and displays the fallback reason. This prevents live transport from becoming the critical demo path.
+
+Live sandbox writes require `missionId` and `callId` correlation that matches the server's private call registry. Existing reliable demo tool payload aliases remain supported. Update a sandbox agent's tool schema only as a deliberate reviewed configuration change. Do not patch live agents or tools while testing this web flow.
+
+The MVP mission repository is process-wide memory so Next.js route and server-component bundles share demo state. It is not production durability. A production live deployment still needs a database, queue, authenticated webhooks, idempotency storage, and verified post-call lifecycle handling.
+
 ## Tool endpoints
 
 The agents should call backend tools for:

@@ -4,6 +4,7 @@ import type { QuotePayload, Quote } from "@/lib/types";
 import { getMission, setMission } from "@/lib/store";
 import { calculateRiskScore } from "@/lib/riskScore";
 import { rankQuotes } from "@/lib/ranking";
+import { addMissionEvent } from "@/lib/missionEvents";
 
 export async function POST(request: NextRequest) {
   let body: QuotePayload & { missionId: string };
@@ -58,18 +59,19 @@ export async function POST(request: NextRequest) {
   const quote: Quote = { ...partialQuote, riskScore, riskLevel };
 
   mission.quotes.push(quote);
-  mission.callLog.push({
-    timestamp: new Date().toISOString(),
-    event: "quote_received",
+  addMissionEvent(mission, {
+    event: "quote_saved",
     details: `${quote.vendorName}: ${
       quote.totalEstimate !== null ? `$${quote.totalEstimate}` : "no total"
-    } — risk ${quote.riskLevel}`,
+    } - risk ${quote.riskLevel}`,
+    category: "tool",
+    toolName: "quote_saved",
   });
 
   // Auto-rank once we have 3+ quotes
   if (mission.quotes.length >= 3) {
     mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-    mission.status = "awaiting_vendor_selection";
+    mission.status = "quotes_ready";
   } else {
     mission.status = "calling_vendors";
   }
