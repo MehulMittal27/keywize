@@ -12,6 +12,7 @@ const ELEVENLABS_AGENT_CREATE_URL = `${ELEVENLABS_CONVAI_AGENTS_BASE_URL}/create
 const ENV_FILE_PATH = path.resolve(process.cwd(), process.env.KEYWIZE_ENV_FILE_PATH ?? ".env.local");
 const TOOL_ENDPOINT_PATH = "/api/elevenlabs/tools";
 const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_turbo_v2";
+const TOOL_PARAMETERS_DESCRIPTION = "Tool-specific JSON parameters collected by the agent.";
 
 const AGENT_DEFINITIONS = [
   {
@@ -189,7 +190,8 @@ function buildParametersSchema(toolName) {
 
   return {
     type: "object",
-    description: "Tool-specific JSON parameters collected by the agent.",
+    description: TOOL_PARAMETERS_DESCRIPTION,
+    required: fields.filter((field) => field.required).map((field) => field.name),
     properties: Object.fromEntries(
       fields.map((field) => [
         field.name,
@@ -199,7 +201,6 @@ function buildParametersSchema(toolName) {
         },
       ]),
     ),
-    required: fields.filter((field) => field.required).map((field) => field.name),
   };
 }
 
@@ -216,14 +217,13 @@ function buildParameterDescription(toolName, fieldName) {
 }
 
 function buildRequestBodySchema(toolName) {
-  // ElevenLabs renders webhook body parameters from:
-  // tool.api_schema.request_body_schema.properties.
-  // This shape is ElevenLabs's parameter-object schema, not arbitrary JSON
-  // Schema. Keep direct body parameters as literal schema nodes. Each literal
-  // node needs exactly one value source: description for LLM-filled values,
-  // constant_value for fixed values, dynamic_variable, is_system_provided, or
-  // is_omitted. If ElevenLabs changes this API, update this builder and the
-  // validator below before running real agent creation.
+  // ElevenLabs renders webhook body parameters from
+  // tool.api_schema.request_body_schema.properties. Nested object fields must
+  // be nested under that object's own properties map, such as
+  // request_body_schema.properties.parameters.properties.caseType. This is the
+  // documented ObjectJsonSchemaProperty-Input shape for webhook request bodies,
+  // not arbitrary JSON Schema and not a schema/value_schema child wrapper.
+  // Keep direct fixed values as literal schema nodes with constant_value.
   return {
     type: "object",
     description: "JSON body sent by the ElevenLabs webhook tool to Keywize.",
@@ -342,7 +342,7 @@ function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel
   const propertyNames = Object.keys(parametersSchema.properties ?? {});
   const expectedPropertyNames = fields.map((field) => field.name);
 
-  if (parametersSchema.description !== "Tool-specific JSON parameters collected by the agent.") {
+  if (parametersSchema.description !== TOOL_PARAMETERS_DESCRIPTION) {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} has an invalid parameters description.`);
   }
 
@@ -372,19 +372,35 @@ function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel
 
 function assertToolBodyPropertySources(schema, pathLabel) {
   for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
-    const sourceKeys = [
-      "description",
-      "dynamic_variable",
-      "is_system_provided",
-      "constant_value",
-      "is_omitted",
-    ].filter((key) => Object.hasOwn(propertySchema, key));
+    assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertyName}`);
+  }
+}
 
-    if (sourceKeys.length !== 1) {
-      throw new Error(
-        `ElevenLabs tool schema property ${pathLabel}.properties.${propertyName} must set exactly one value source; found ${sourceKeys.length}.`,
-      );
+function assertSchemaNodeSources(schemaNode, pathLabel) {
+  if (schemaNode?.type === "object") {
+    if (!schemaNode.properties || typeof schemaNode.properties !== "object") {
+      throw new Error(`ElevenLabs object schema at ${pathLabel} must contain a properties map.`);
     }
+
+    for (const [propertyName, propertySchema] of Object.entries(schemaNode.properties)) {
+      assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertyName}`);
+    }
+
+    return;
+  }
+
+  const sourceKeys = [
+    "description",
+    "dynamic_variable",
+    "is_system_provided",
+    "constant_value",
+    "is_omitted",
+  ].filter((key) => Object.hasOwn(schemaNode, key));
+
+  if (sourceKeys.length !== 1) {
+    throw new Error(
+      `ElevenLabs literal schema property ${pathLabel} must set exactly one value source; found ${sourceKeys.length}.`,
+    );
   }
 }
 
@@ -554,8 +570,10 @@ async function main() {
       .map(({ name, payload }) => {
         const toolDetails = payload.conversation_config.agent.prompt.tools
           .map((tool) => {
-            const bodyParameterNames = Object.keys(tool.api_schema.request_body_schema.properties).join(", ");
-            return `${tool.name} [body: ${bodyParameterNames}]`;
+            const bodyProperties = tool.api_schema.request_body_schema.properties;
+            const bodyParameterNames = Object.keys(bodyProperties).join(", ");
+            const nestedParameterNames = Object.keys(bodyProperties.parameters.properties).join(", ");
+            return `${tool.name} [body: ${bodyParameterNames}; parameters.properties: ${nestedParameterNames}]`;
           })
           .join(", ");
         return `${name}: ${toolDetails}`;
@@ -566,7 +584,7 @@ async function main() {
     console.log("Webhook URL was derived from NEXT_PUBLIC_APP_URL.");
     console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
     console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
-    console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool_name and parameters.");
+    console.log("Tool schema sanity check passed: every webhook request_body_schema exposes visible body parameters named tool_name and parameters, with tool-specific nested fields under parameters.properties.");
     console.log(`Tool split:\n${toolSummary}`);
     console.log("No agents were created and the env file was not updated.");
     return;
