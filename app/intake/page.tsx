@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ElevenLabsIntakeVoice } from "@/components/ElevenLabsIntakeVoice";
 
 const CASES = [
   { id: "room_key_lost", label: "Lost room key" },
@@ -11,8 +12,10 @@ const CASES = [
   { id: "broken_key_inside_lock", label: "Broken key inside lock" },
 ];
 
-export default function IntakePage() {
+function IntakePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isVoiceMode = searchParams.get("mode") === "voice";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -75,7 +78,7 @@ export default function IntakePage() {
 
   return (
     <div className="min-h-screen bg-[#fbfaf7] text-[#111111] font-sans pb-24">
-      <nav className="flex items-center justify-between px-8 py-5 max-w-2xl mx-auto border-b border-black/5">
+      <nav className={`flex items-center justify-between px-8 py-5 mx-auto border-b border-black/5 ${isVoiceMode ? "max-w-4xl" : "max-w-2xl"}`}>
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
           <div className="w-6 h-6 bg-[#111111] rounded flex items-center justify-center">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -84,18 +87,43 @@ export default function IntakePage() {
           </div>
           <span className="font-bold tracking-tight">Keywize</span>
         </div>
-        <div className="text-sm font-medium text-gray-400">Step 1 of 3 — Intake</div>
+        <div className="text-sm font-medium text-gray-600">Step 1 of 3 - Intake</div>
       </nav>
 
-      <main className="max-w-2xl mx-auto mt-10 px-6">
-        <h1 className="text-4xl font-serif tracking-tight mb-1">Tell us what happened</h1>
-        <p className="text-gray-500 mb-8 text-lg">We will use this to negotiate the best possible rate.</p>
+      <main className={`mx-auto mt-10 px-6 ${isVoiceMode ? "max-w-4xl" : "max-w-2xl"}`}>
+        {isVoiceMode ? (
+          <>
+            <h1 className="text-4xl font-serif tracking-tight mb-1">Start with your voice</h1>
+            <p className="text-gray-500 mb-8 text-lg">
+              Talk to the Keywize Intake agent, or use the complete manual form below.
+            </p>
+            <ElevenLabsIntakeVoice />
+            <div className="my-10 flex items-center gap-4" aria-hidden="true">
+              <div className="h-px flex-1 bg-black/10" />
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-600">
+                Manual fallback
+              </span>
+              <div className="h-px flex-1 bg-black/10" />
+            </div>
+            <div className="mx-auto mb-6 max-w-2xl">
+              <h2 className="font-serif text-3xl tracking-tight">Tell us what happened</h2>
+              <p className="mt-1 text-gray-500">
+                Complete this form at any time if voice is unavailable or a mission does not open.
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-4xl font-serif tracking-tight mb-1">Tell us what happened</h1>
+            <p className="text-gray-500 mb-8 text-lg">We will use this to negotiate the best possible rate.</p>
+          </>
+        )}
 
-        <form onSubmit={handleSubmit} className="space-y-8 bg-white p-8 rounded-3xl shadow-sm border border-black/5">
+        <form id="manual-intake" onSubmit={handleSubmit} className={`space-y-8 bg-white p-8 rounded-3xl shadow-sm border border-black/5 ${isVoiceMode ? "mx-auto max-w-2xl" : ""}`}>
 
           {/* Case type */}
-          <div className="space-y-3">
-            <label className="font-semibold block text-sm">What is your lockout situation?</label>
+          <fieldset className="space-y-3">
+            <legend className="font-semibold block text-sm">What is your lockout situation?</legend>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CASES.map((item) => (
                 <label
@@ -107,33 +135,33 @@ export default function IntakePage() {
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {/* Location */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="font-semibold text-sm">City</label>
-              <input type="text" value={form.locationCity} onChange={e => set("locationCity", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
+              <label htmlFor="locationCity" className="font-semibold text-sm">City</label>
+              <input id="locationCity" name="locationCity" autoComplete="address-level2" type="text" value={form.locationCity} onChange={e => set("locationCity", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
             </div>
             <div className="space-y-2">
-              <label className="font-semibold text-sm">ZIP Code</label>
-              <input type="text" value={form.locationZip} onChange={e => set("locationZip", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
+              <label htmlFor="locationZip" className="font-semibold text-sm">ZIP Code</label>
+              <input id="locationZip" name="locationZip" autoComplete="postal-code" inputMode="numeric" type="text" value={form.locationZip} onChange={e => set("locationZip", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
             </div>
           </div>
 
           {/* Property, door, lock type */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <label className="font-semibold text-sm">Property type</label>
-              <select value={form.propertyType} onChange={e => set("propertyType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+              <label htmlFor="propertyType" className="font-semibold text-sm">Property type</label>
+              <select id="propertyType" name="propertyType" value={form.propertyType} onChange={e => set("propertyType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
                 <option value="apartment">Apartment</option>
                 <option value="dorm">Dorm</option>
                 <option value="house">House</option>
               </select>
             </div>
             <div className="space-y-2">
-              <label className="font-semibold text-sm">Door type</label>
-              <select value={form.doorType} onChange={e => set("doorType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+              <label htmlFor="doorType" className="font-semibold text-sm">Door type</label>
+              <select id="doorType" name="doorType" value={form.doorType} onChange={e => set("doorType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
                 <option value="main_entry">Main entry</option>
                 <option value="room">Room door</option>
                 <option value="building_entry">Building entry</option>
@@ -141,8 +169,8 @@ export default function IntakePage() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="font-semibold text-sm">Lock type</label>
-              <select value={form.lockType} onChange={e => set("lockType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+              <label htmlFor="lockType" className="font-semibold text-sm">Lock type</label>
+              <select id="lockType" name="lockType" value={form.lockType} onChange={e => set("lockType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
                 <option value="deadbolt">Deadbolt</option>
                 <option value="knob">Knob</option>
                 <option value="lever">Lever</option>
@@ -153,8 +181,8 @@ export default function IntakePage() {
           </div>
 
           {/* Urgency */}
-          <div className="space-y-2">
-            <label className="font-semibold text-sm">Urgency</label>
+          <fieldset className="space-y-2">
+            <legend className="font-semibold text-sm">Urgency</legend>
             <div className="flex gap-3">
               {[
                 { id: "locked_out_now", label: "Locked out NOW" },
@@ -167,30 +195,30 @@ export default function IntakePage() {
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {/* Prices */}
           <div className="space-y-5">
             <div className="space-y-2">
               <div className="flex justify-between">
-                <label className="font-semibold text-sm">Ideal price</label>
+                <label htmlFor="idealPrice" className="font-semibold text-sm">Ideal price</label>
                 <span className="text-gray-500 text-sm font-medium">${form.idealPrice}</span>
               </div>
-              <input type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => set("idealPrice", parseInt(e.target.value))} className="w-full accent-[#30a985]" />
+              <input id="idealPrice" name="idealPrice" type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => set("idealPrice", parseInt(e.target.value))} className="w-full accent-[#30a985]" />
             </div>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <label className="font-semibold text-sm">Absolute Max Budget</label>
+                <label htmlFor="maxPrice" className="font-semibold text-sm">Absolute Max Budget</label>
                 <span className="text-pink-600 text-sm font-bold">${form.maxPrice}</span>
               </div>
               <p className="text-xs text-gray-500">We will disqualify any vendor who refuses to cap their price under this amount.</p>
-              <input type="range" min="50" max="500" step="10" value={form.maxPrice} onChange={e => set("maxPrice", parseInt(e.target.value))} className="w-full accent-[#111111]" />
+              <input id="maxPrice" name="maxPrice" type="range" min="50" max="500" step="10" value={form.maxPrice} onChange={e => set("maxPrice", parseInt(e.target.value))} className="w-full accent-[#111111]" />
             </div>
           </div>
 
           {/* Budget flexibility */}
-          <div className="space-y-2">
-            <label className="font-semibold text-sm">Budget flexibility</label>
+          <fieldset className="space-y-2">
+            <legend className="font-semibold text-sm">Budget flexibility</legend>
             <div className="flex gap-3">
               {[
                 { id: "strict", label: "Strict" },
@@ -203,11 +231,11 @@ export default function IntakePage() {
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {/* New keys needed */}
           <div className="space-y-2">
-            <label className="font-semibold text-sm">New keys needed</label>
+            <p className="font-semibold text-sm">New keys needed</p>
             <div className="flex gap-2">
               {[0, 1, 2, 3].map(n => (
                 <button key={n} type="button" onClick={() => set("newKeysNeeded", n)} className={`w-12 h-12 rounded-xl font-medium text-sm border transition-all ${form.newKeysNeeded === n ? "bg-[#111111] text-white border-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
@@ -222,6 +250,8 @@ export default function IntakePage() {
             <label className="flex items-start gap-3 cursor-pointer">
               <div className="relative flex items-start mt-1">
                 <input
+                  id="authorizationConfirmed"
+                  name="authorizationConfirmed"
                   type="checkbox"
                   required
                   checked={form.authorizationConfirmed}
@@ -254,5 +284,21 @@ export default function IntakePage() {
         </form>
       </main>
     </div>
+  );
+}
+
+function IntakeLoading() {
+  return (
+    <div className="min-h-screen bg-[#fbfaf7] px-6 py-24 text-center text-sm text-gray-500">
+      Loading intake...
+    </div>
+  );
+}
+
+export default function IntakePage() {
+  return (
+    <Suspense fallback={<IntakeLoading />}>
+      <IntakePageContent />
+    </Suspense>
   );
 }
