@@ -148,22 +148,30 @@ const TOOL_PARAMETER_FIELDS = {
     { name: "locationZip", type: "string", required: true },
   ],
   save_quote: [
+    { name: "missionId", type: "string", required: true },
+    { name: "callId", type: "string", required: true },
+    { name: "vendorId", type: "string", required: true },
     { name: "vendorName", type: "string", required: true },
-    { name: "phone", type: "string", required: true },
+    { name: "phone", type: "string", required: false },
     { name: "etaMinutes", type: "number", required: true },
-    { name: "dispatchFee", type: "number", required: true },
-    { name: "laborFee", type: "number", required: true },
-    { name: "partsFee", type: "number", required: true },
-    { name: "afterHoursFee", type: "number", required: true },
-    { name: "taxesAndOther", type: "number", required: true },
-    { name: "totalEstimate", type: "number", required: true },
+    { name: "dispatchFee", type: "number", required: false },
+    { name: "laborFee", type: "number", required: false },
+    { name: "partsFee", type: "number", required: false },
+    { name: "afterHoursFee", type: "number", required: false },
+    { name: "taxesAndOther", type: "number", required: false },
+    { name: "totalEstimate", type: "number", required: false },
     { name: "isTotalAllIn", type: "boolean", required: true },
     { name: "drillingPolicy", type: "string", required: true },
     { name: "idRequired", type: "boolean", required: true },
     { name: "oldKeyDisabled", type: "boolean", required: false },
     { name: "keysIncluded", type: "number", required: true },
     { name: "warranty", type: "string", required: false },
-    { name: "quoteConfidence", type: "string", required: true },
+    {
+      name: "quoteConfidence",
+      type: "string",
+      required: true,
+      enum: ["firm_before_arrival", "starts_at", "callback", "declined"],
+    },
     { name: "redFlags", type: "string", required: false },
     { name: "transcriptEvidence", type: "string", required: true },
     { name: "transcript", type: "string", required: true },
@@ -183,6 +191,9 @@ const TOOL_PARAMETER_FIELDS = {
     { name: "conversationContext", type: "string", required: true },
   ],
   update_negotiation: [
+    { name: "missionId", type: "string", required: true },
+    { name: "callId", type: "string", required: true },
+    { name: "quoteId", type: "string", required: true },
     { name: "vendorName", type: "string", required: true },
     { name: "beforePrice", type: "number", required: true },
     { name: "afterPrice", type: "number", required: true },
@@ -287,6 +298,7 @@ function buildInlineParametersSchema(toolName) {
         {
           type: field.type,
           description: buildParameterDescription(toolName, field),
+          ...(field.enum ? { enum: field.enum } : {}),
         },
       ]),
     ),
@@ -296,6 +308,10 @@ function buildInlineParametersSchema(toolName) {
 
 function buildParameterDescription(toolName, field) {
   const stringListHints = {
+    missionId: "Use the mission_id runtime value exactly. Never ask the caller for it or say it aloud.",
+    callId: "Use the call_id runtime value exactly. Never ask the caller for it or say it aloud.",
+    vendorId: "Use the vendor_id runtime value exactly. Never ask the caller for it or say it aloud.",
+    quoteId: "Use the target_quote_id runtime value exactly. Never ask the caller for it or say it aloud.",
     redFlags: "Comma-separated red flags if any; leave empty or omit if none.",
     transcriptEvidence: "Comma-separated transcript evidence snippets supporting this tool call.",
     fillerWords: "Comma-separated filler words heard in the answer, if any.",
@@ -516,6 +532,10 @@ function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel
 
     if (typeof propertySchema.description !== "string" || propertySchema.description.length === 0) {
       throw new Error(`ElevenLabs inline tool schema at ${pathLabel}.properties.${field.name} must include an extraction description.`);
+    }
+
+    if (field.enum && propertySchema.enum?.join(",") !== field.enum.join(",")) {
+      throw new Error(`ElevenLabs inline tool schema at ${pathLabel}.properties.${field.name} must include its allowed values.`);
     }
   }
 }

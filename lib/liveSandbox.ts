@@ -3,6 +3,16 @@ import "server-only";
 import { addMissionEvent } from "./missionEvents";
 import { activateNegotiationFallback, activateReliableFallback } from "./demoOrchestrator";
 import {
+  ensureLiveSandboxDiagnostics,
+  markLiveSandboxCallStarted,
+  markLiveSandboxPhoneAnswered,
+  markLiveSandboxPhoneSessionEnded,
+  parseLiveSandboxFallbackMs,
+  providerConversationHasEnded,
+  providerConversationShowsAnswer,
+} from "./liveSandboxDiagnostics";
+import { liveSandboxVendorLabel } from "./liveSandboxGuide";
+import {
   getLiveSandboxEnvValue,
   getLiveSandboxPhoneNumberId,
   inspectLiveSandboxConfig,
@@ -12,6 +22,9 @@ import {
 import type { CallRole, Mission, VendorCall, VendorId } from "./types";
 
 const OUTBOUND_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call";
+const CONVERSATIONS_URL = "https://api.elevenlabs.io/v1/convai/conversations";
+const PROVIDER_STATUS_POLL_MS = 4_000;
+const NEXT_PERSONA_CALL_DELAY_MS = 4_000;
 
 const destinationEnvNames: Record<VendorId, string> = {
   vendor_a: "KEYWIZE_SANDBOX_VENDOR_A_PHONE",
@@ -26,6 +39,7 @@ type PrivateCallCorrelation = {
   role: CallRole;
   conversationId?: string;
   providerCallId?: string;
+  lastStatusCheckAt?: number;
 };
 
 const callRegistryGlobal = globalThis as typeof globalThis & {
@@ -37,9 +51,9 @@ const privateCallRegistry =
 callRegistryGlobal.__keywizePrivateCallRegistry = privateCallRegistry;
 
 function fallbackDelayMs(): number {
-  const configured = Number(process.env.KEYWIZE_LIVE_SANDBOX_FALLBACK_MS ?? 20000);
-  if (!Number.isFinite(configured)) return 20000;
-  return Math.min(120000, Math.max(5000, configured));
+  return parseLiveSandboxFallbackMs(
+    process.env.KEYWIZE_LIVE_SANDBOX_FALLBACK_MS
+  );
 }
 
 function configFor(role: CallRole, vendorId: VendorId) {
@@ -68,13 +82,15 @@ export function liveSandboxIsConfigured(): boolean {
   return getLiveSandboxConfigStatus().configured;
 }
 
-function callerFirstMessage(mission: Mission): string {
+function callerFirstMessage(mission: Mission, call: VendorCall): string {
   const job = mission.jobSpec;
   return (
-    `Hi, I'm calling on behalf of an authorized customer seeking a pre-dispatch quote for ` +
-    `${job.caseType.replaceAll("_", " ")} at a ${job.propertyType} ${job.doorType.replaceAll("_", " ")} ` +
-    `in ${job.locationCity}, ${job.locationZip}. The lock is ${job.lockType.replaceAll("_", " ")}. ` +
-    "Could I get the firm all-in total, including every fee and tax?"
+    `Hi, this is Keywize's controlled live sandbox test for ${liveSandboxVendorLabel(call.vendorId)}. ` +
+    `Please answer as ${liveSandboxVendorLabel(call.vendorId)} using the roleplay card shown in Keywize, ` +
+    `and stay on through my final quote readback. The test job is ${job.caseType.replaceAll("_", " ")} ` +
+    `at a ${job.propertyType} ${job.doorType.replaceAll("_", " ")} with a ` +
+    `${job.lockType.replaceAll("_", " ")} in ${job.locationCity}, ${job.locationZip}. ` +
+    "First, what's the all-in total, including every fee and tax?"
   );
 }
 
@@ -107,19 +123,14 @@ export async function initiateSandboxCall(
 
   call.status = "ringing";
   call.startedAt = new Date().toISOString();
-  addMissionEvent(mission, {
-    event: "sandbox_call_started",
-    details: `${call.role === "caller" ? "Caller" : "Closer"} started a controlled sandbox call to ${call.vendorName}.`,
-    vendorId: call.vendorId,
-    category: "call",
-    source: "live_sandbox",
-  });
 
   const dynamicVariables: Record<string, string> = {
     mission_id: mission.id,
     call_id: call.id,
     vendor_id: call.vendorId,
     role: call.role,
+    sandbox_mode: "true",
+    vendor_slot: liveSandboxVendorLabel(call.vendorId),
     case_type: mission.jobSpec.caseType,
     urgency: mission.jobSpec.urgency,
     property_type: mission.jobSpec.propertyType,
@@ -146,7 +157,9 @@ export async function initiateSandboxCall(
     conversation_config_override: {
       agent: {
         first_message:
-          call.role === "caller" ? callerFirstMessage(mission) : closerFirstMessage(mission),
+          call.role === "caller"
+            ? callerFirstMessage(mission, call)
+            : closerFirstMessage(mission),
       },
     },
   };
@@ -177,6 +190,14 @@ export async function initiateSandboxCall(
     }
 
     const raw = (await response.json()) as Record<string, unknown>;
+    markLiveSandboxCallStarted(call);
+    addMissionEvent(mission, {
+      event: "sandbox_call_started",
+      details: `${call.role === "caller" ? "Caller" : "Closer"} started a controlled sandbox call to ${liveSandboxVendorLabel(call.vendorId)}.`,
+      vendorId: call.vendorId,
+      category: "call",
+      source: "live_sandbox",
+    });
     privateCallRegistry.set(call.id, {
       missionId: mission.id,
       callId: call.id,
@@ -202,6 +223,146 @@ export function getPrivateCallCorrelation(callId: string): PrivateCallCorrelatio
   return privateCallRegistry.get(callId);
 }
 
+export function getPrivateCallCorrelationByConversationId(
+  conversationId: string
+): PrivateCallCorrelation | undefined {
+  for (const correlation of privateCallRegistry.values()) {
+    if (correlation.conversationId === conversationId) return correlation;
+  }
+  return undefined;
+}
+
+function endedWithoutQuoteDetails(call: VendorCall): string {
+  const diagnostics = ensureLiveSandboxDiagnostics(call);
+  if (diagnostics.toolWebhook === "rejected") {
+    return `${liveSandboxVendorLabel(call.vendorId)} answered, but save_quote reached Keywize and was rejected: ${diagnostics.toolRejectionReason ?? "invalid fields"}.`;
+  }
+  if (diagnostics.toolWebhook === "received") {
+    return `${liveSandboxVendorLabel(call.vendorId)} answered and save_quote reached Keywize, but no quote was persisted.`;
+  }
+  if (diagnostics.phoneAnsweredAt) {
+    return `${liveSandboxVendorLabel(call.vendorId)} answered, but the save_quote webhook never reached Keywize.`;
+  }
+  return `${liveSandboxVendorLabel(call.vendorId)} call ended before Keywize observed an answered phone or save_quote webhook.`;
+}
+
+export async function refreshLiveSandboxCallStatuses(
+  mission: Mission
+): Promise<boolean> {
+  if (mission.mode !== "live_sandbox" || mission.orchestration.replayActive) {
+    return false;
+  }
+
+  const apiKey = getLiveSandboxEnvValue(process.env, "ELEVENLABS_API_KEY");
+  if (!apiKey) return false;
+
+  let changed = false;
+  for (const call of mission.vendorCalls) {
+    if (!call.startedAt || call.quoteId || call.fallbackUsed) continue;
+    const correlation = privateCallRegistry.get(call.id);
+    if (!correlation?.conversationId) continue;
+    if (
+      correlation.lastStatusCheckAt &&
+      Date.now() - correlation.lastStatusCheckAt < PROVIDER_STATUS_POLL_MS
+    ) {
+      continue;
+    }
+    correlation.lastStatusCheckAt = Date.now();
+
+    try {
+      const response = await fetch(
+        `${CONVERSATIONS_URL}/${encodeURIComponent(correlation.conversationId)}`,
+        {
+          headers: { "xi-api-key": apiKey },
+          cache: "no-store",
+          signal: AbortSignal.timeout(4_000),
+        }
+      );
+      if (!response.ok) continue;
+      const payload = (await response.json()) as Record<string, unknown>;
+
+      if (providerConversationShowsAnswer(payload)) {
+        if (markLiveSandboxPhoneAnswered(call)) {
+          call.status = "connected";
+          addMissionEvent(mission, {
+            event: "sandbox_phone_answered",
+            details: `${liveSandboxVendorLabel(call.vendorId)} phone answered the controlled sandbox call. Waiting for a structured quote.`,
+            vendorId: call.vendorId,
+            category: "call",
+            source: "live_sandbox",
+          });
+          changed = true;
+        }
+      }
+
+      if (providerConversationHasEnded(payload)) {
+        if (markLiveSandboxPhoneSessionEnded(call)) {
+          addMissionEvent(mission, {
+            event: "sandbox_call_ended_without_quote",
+            details: endedWithoutQuoteDetails(call),
+            vendorId: call.vendorId,
+            category: "call",
+            source: "live_sandbox",
+          });
+          changed = true;
+        }
+      }
+    } catch {
+      // Provider status polling is diagnostic-only. The bounded mission timeout
+      // remains authoritative and the reliable replay still protects the demo.
+    }
+  }
+  return changed;
+}
+
+export async function initiateNextSandboxCallerCall(
+  mission: Mission
+): Promise<{ ok: true; allStarted: boolean } | { ok: false; reason: string }> {
+  const callerCalls = mission.vendorCalls.filter((call) => call.role === "caller");
+  const nextIndex = callerCalls.findIndex((call) => call.status === "queued");
+  if (nextIndex < 0) return { ok: true, allStarted: true };
+  if (callerCalls.slice(0, nextIndex).some((call) => !call.quoteId)) {
+    return { ok: true, allStarted: false };
+  }
+
+  const result = await initiateSandboxCall(mission, callerCalls[nextIndex]);
+  return result.ok ? { ok: true, allStarted: false } : result;
+}
+
+export function scheduleNextSandboxCallerCall(mission: Mission): void {
+  mission.orchestration.nextActionAt = new Date(
+    Date.now() + NEXT_PERSONA_CALL_DELAY_MS
+  ).toISOString();
+}
+
+export async function advanceLiveSandboxCallerCalls(
+  mission: Mission
+): Promise<boolean> {
+  if (
+    mission.mode !== "live_sandbox" ||
+    mission.status !== "calling_vendors" ||
+    mission.orchestration.replayActive ||
+    Date.now() < Date.parse(mission.orchestration.nextActionAt)
+  ) {
+    return false;
+  }
+
+  const queuedBefore = mission.vendorCalls.filter(
+    (call) => call.role === "caller" && call.status === "queued"
+  ).length;
+  if (queuedBefore === 0) return false;
+
+  const result = await initiateNextSandboxCallerCall(mission);
+  if (!result.ok) {
+    activateReliableFallback(mission, result.reason);
+    return true;
+  }
+  const queuedAfter = mission.vendorCalls.filter(
+    (call) => call.role === "caller" && call.status === "queued"
+  ).length;
+  return queuedAfter < queuedBefore;
+}
+
 export async function startLiveSandboxMission(mission: Mission): Promise<void> {
   mission.mode = "live_sandbox";
   mission.status = "calling_vendors";
@@ -225,15 +386,9 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
     return;
   }
 
-  const callerCalls = mission.vendorCalls.filter((call) => call.role === "caller");
-  const results = await Promise.all(
-    callerCalls.map((call) => initiateSandboxCall(mission, call))
-  );
-  if (results.some((result) => !result.ok)) {
-    activateReliableFallback(
-      mission,
-      "At least one controlled sandbox call could not be started."
-    );
+  const firstCall = await initiateNextSandboxCallerCall(mission);
+  if (!firstCall.ok) {
+    activateReliableFallback(mission, firstCall.reason);
     return;
   }
 
@@ -242,7 +397,8 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
   ).toISOString();
   addMissionEvent(mission, {
     event: "live_calls_in_progress",
-    details: "Controlled sandbox calls started. Incomplete legs will fall back to reliable replay automatically.",
+    details:
+      "Controlled sandbox calls run in Vendor A, B, C order so one tester can roleplay each persona. The next call starts after save_quote persists the current quote.",
     category: "status",
     source: "live_sandbox",
   });

@@ -4,6 +4,10 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ElevenLabsIntakeVoice } from "@/components/ElevenLabsIntakeVoice";
 import { clampMaxPrice } from "@/lib/jobSpec";
+import {
+  LIVE_SANDBOX_ROLEPLAY,
+  LIVE_SANDBOX_VENDOR_ORDER,
+} from "@/lib/liveSandboxGuide";
 
 const CASES = [
   { id: "room_key_lost", label: "Lost room key" },
@@ -430,6 +434,34 @@ function IntakePageContent() {
                   </button>
                 </div>
               </div>
+
+              {missionMode === "live_sandbox" && (
+                <section className="rounded-3xl border border-pink-200 bg-pink-50 p-5" aria-label="Live sandbox tester instructions">
+                  <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
+                    Sandbox roleplay required
+                  </p>
+                  <h3 className="mt-2 font-serif text-xl font-semibold">
+                    The linked Keywize number calls your configured test phones.
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-pink-900">
+                    Calls run one at a time in A, B, C order. Answer each phone as the named vendor, use only the card below, and stay on until the Caller reads the quote back. If no one supplies these facts, the agent cannot save a quote.
+                  </p>
+                  <ol className="mt-4 space-y-3">
+                    {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {
+                      const roleplay = LIVE_SANDBOX_ROLEPLAY[vendorId];
+                      return (
+                        <li key={vendorId} className="rounded-2xl bg-white/80 p-3 text-sm leading-relaxed text-gray-700">
+                          <strong className="text-black">Answer as {roleplay.label}:</strong>{" "}
+                          {roleplay.instruction}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <p className="mt-3 text-xs text-pink-700">
+                    Controlled sandbox only. No arbitrary business or browser-supplied number is dialed. If live proof fails, the UI visibly switches to disclosed replay.
+                  </p>
+                </section>
+              )}
 
               <div className="pt-4">
                 <label className="flex items-start gap-3 cursor-pointer">
