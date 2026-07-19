@@ -148,16 +148,13 @@ export default function Home() {
 
         {/* Left: copy */}
         <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left gap-6">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-[8px] bg-white/80 border border-black/8 shadow-sm text-[11px] font-semibold tracking-widest uppercase text-gray-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#B87333] animate-pulse" />
-            AI Locksmith Concierge
-          </div>
-
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif text-[#111111] leading-[1.07] tracking-tight max-w-md lg:max-w-none">
             Locked out?
             <br />
             <span className="italic text-gray-400">Don&rsquo;t get played.</span>
           </h1>
+
+          <p className="text-sm text-gray-400 font-medium -mt-3">Your AI locksmith concierge</p>
 
           <p className="text-base text-gray-500 max-w-sm leading-relaxed">
             Keywize calls locksmiths on your behalf, detects hidden fees, negotiates under your budget, and recommends the safest deal with full evidence.
