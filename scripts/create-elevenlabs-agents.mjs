@@ -98,7 +98,7 @@ const AGENT_DEFINITIONS = [
     name: "Keywize Intake Agent",
     promptPath: "voice/prompts/intake-agent.md",
     envKey: "ELEVENLABS_INTAKE_AGENT_ID",
-    firstMessage: "Hi, I'm with Keywize. Are you locked out right now?",
+    firstMessage: "Hi, this is Keywize. What happened with your lock?",
     tools: ["create_job_spec"],
   },
   {

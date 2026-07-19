@@ -44,6 +44,8 @@ Changing `NEXT_PUBLIC_APP_URL` locally does not retarget tools already stored by
 
 Editing the prompt files or create script changes only this repository. Existing agents in ElevenLabs keep their old prompts, first messages, model settings, and guardrails until they are updated or replaced.
 
+In particular, editing `voice/prompts/intake-agent.md` does not change the hosted Intake conversation. Update the existing live Intake agent with the revised prompt and Intake first message, or intentionally recreate the agents and switch the application to the new Intake agent. Until one of those steps is complete, hosted voice calls continue using the previous Intake behavior.
+
 After a prompt or guardrail change:
 
 1. Run `node scripts/create-elevenlabs-agents.mjs --dry-run` to validate the local payload without contacting ElevenLabs.
