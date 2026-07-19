@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 import { ConfidenceWaveform } from "@/components/ConfidenceWaveform";
 import { VendorCallProgress } from "@/components/VendorCallProgress";
 import { VoiceTrustBadge } from "@/components/VoiceTrustBadge";
-import type { Mission, Quote, VendorCallStatus } from "@/lib/types";
+import {
+  LIVE_SANDBOX_ROLEPLAY,
+  LIVE_SANDBOX_VENDOR_ORDER,
+} from "@/lib/liveSandboxGuide";
+import type { Mission, Quote, VendorCall, VendorCallStatus } from "@/lib/types";
 
 const STATUS_LABELS: Record<VendorCallStatus, string> = {
   queued: "Queued",
@@ -37,6 +41,98 @@ function modeLabel(mission: Mission): string {
   if (mission.mode === "reliable_demo") return "Reliable Demo - simulated vendors";
   if (mission.fallbackReason) return "Live Sandbox - reliable replay fallback";
   return "Live Sandbox - controlled calls";
+}
+
+function liveDiagnosticText(call: VendorCall): string[] {
+  const diagnostics = call.liveDiagnostics;
+  const lines = [
+    diagnostics?.callStartedAt
+      ? "Live call started"
+      : call.fallbackUsed
+        ? "Live call not started before fallback"
+        : "Waiting to start in A, B, C order",
+  ];
+
+  if (diagnostics?.phoneAnsweredAt) {
+    lines.push(
+      diagnostics.phoneSessionEndedAt && !call.quoteId
+        ? "Phone answered, but no quote was saved before the call ended"
+        : "Phone answered"
+    );
+  } else if (diagnostics?.phoneSessionEndedAt) {
+    lines.push("No answered phone session was observed");
+  } else if (diagnostics?.callStartedAt) {
+    lines.push("Waiting for an answered phone session");
+  }
+
+  switch (diagnostics?.toolWebhook) {
+    case "quote_saved":
+      lines.push("save_quote webhook accepted - quote saved");
+      break;
+    case "rejected":
+      lines.push(
+        `save_quote webhook called but rejected - ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}`
+      );
+      break;
+    case "received":
+      lines.push("save_quote webhook called - no quote saved yet");
+      break;
+    default:
+      if (
+        diagnostics?.timedOut ||
+        diagnostics?.phoneSessionEndedAt ||
+        diagnostics?.fallbackReplayUsed
+      ) {
+        lines.push("save_quote webhook never reached Keywize");
+      } else {
+        lines.push("save_quote webhook not called yet");
+      }
+  }
+
+  if (diagnostics?.timedOut) lines.push("Timed out waiting for all quotes");
+  if (diagnostics?.fallbackReplayUsed) lines.push("Disclosed reliable replay used");
+  return lines;
+}
+
+function LiveSandboxPanel({ calls }: { calls: VendorCall[] }) {
+  return (
+    <section className="rounded-3xl border border-pink-200 bg-pink-50 p-5" aria-label="Live sandbox roleplay and diagnostics">
+      <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
+        Controlled sandbox - tester action required
+      </p>
+      <h2 className="mt-2 font-serif text-xl font-semibold">Answer each call as the assigned vendor.</h2>
+      <p className="mt-2 text-sm leading-relaxed text-pink-900">
+        The linked Keywize number calls only configured test phones, one at a time in A, B, C order. Stay on through the final readback so the Caller can save the quote.
+      </p>
+      <div className="mt-4 space-y-3">
+        {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {
+          const roleplay = LIVE_SANDBOX_ROLEPLAY[vendorId];
+          const call = calls.find((candidate) => candidate.vendorId === vendorId);
+          return (
+            <article key={vendorId} className="rounded-2xl bg-white/85 p-4">
+              <p className="text-sm leading-relaxed text-gray-700">
+                <strong className="text-black">Answer as {roleplay.label}:</strong>{" "}
+                {roleplay.instruction}
+              </p>
+              {call && (
+                <ul className="mt-3 space-y-1 border-t border-pink-100 pt-3">
+                  {liveDiagnosticText(call).map((line) => (
+                    <li key={line} className="flex gap-2 text-xs leading-relaxed text-gray-600">
+                      <span className="text-pink-500">•</span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs text-pink-700">
+        These are safe status labels only. Phone numbers and provider identifiers never appear here.
+      </p>
+    </section>
+  );
 }
 
 function QuoteCard({
@@ -292,11 +388,18 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
       <main className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[340px_1fr]">
         <aside className="space-y-5">
+          {mission.mode === "live_sandbox" && (
+            <LiveSandboxPanel calls={quoteCalls} />
+          )}
+
           {mission.fallbackReason && (
             <div className="rounded-3xl border border-pink-200 bg-pink-50 p-5">
               <p className="text-xs font-bold uppercase tracking-wider text-pink-700">Visible fallback</p>
               <p className="mt-2 text-sm leading-relaxed text-pink-900">{mission.fallbackReason}</p>
-              <p className="mt-2 text-xs text-pink-700">No arbitrary business or phone number was dialed.</p>
+              <p className="mt-2 text-xs font-semibold text-pink-800">
+                Disclosed reliable persona replay is now filling only missing demo results.
+              </p>
+              <p className="mt-1 text-xs text-pink-700">No arbitrary business or phone number was dialed.</p>
             </div>
           )}
 

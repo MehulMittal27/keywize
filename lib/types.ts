@@ -65,6 +65,22 @@ export type VendorCallStatus =
   | "failed"
   | "replay_fallback";
 
+export type LiveSandboxToolWebhookStatus =
+  | "not_called"
+  | "received"
+  | "rejected"
+  | "quote_saved";
+
+export type LiveSandboxCallDiagnostics = {
+  callStartedAt?: string;
+  phoneAnsweredAt?: string;
+  phoneSessionEndedAt?: string;
+  toolWebhook: LiveSandboxToolWebhookStatus;
+  toolRejectionReason?: string;
+  timedOut: boolean;
+  fallbackReplayUsed: boolean;
+};
+
 export type MissionEventCategory =
   | "status"
   | "call"
@@ -179,6 +195,7 @@ export type VendorCall = {
   startedAt?: string;
   completedAt?: string;
   fallbackUsed: boolean;
+  liveDiagnostics?: LiveSandboxCallDiagnostics;
 };
 
 export type LeverageSnapshot = {

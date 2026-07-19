@@ -3,7 +3,14 @@ import { rankQuotes } from "./ranking";
 import { getDemoQuoteForVendor, VENDOR_DEFINITIONS, createVendorCalls } from "./mockData";
 import { addMissionEvent } from "./missionEvents";
 import { leverageStillMatchesMission } from "./leverage";
-import type { Mission, MissionEventSource, VendorId, VoiceTrustSignal } from "./types";
+import {
+  ensureLiveSandboxDiagnostics,
+  getLiveSandboxTimeoutCause,
+  markLiveSandboxFallbackUsed,
+  markLiveSandboxTimedOut,
+} from "./liveSandboxDiagnostics";
+import { liveSandboxVendorLabel } from "./liveSandboxGuide";
+import type { Mission, MissionEventSource, VendorCall, VendorId, VoiceTrustSignal } from "./types";
 
 const REPLAY_STEP_DELAY_MS = 650;
 const VENDOR_ORDER: VendorId[] = ["vendor_a", "vendor_b", "vendor_c"];
@@ -46,6 +53,7 @@ export function activateReliableFallback(mission: Mission, reason: string): void
     if (!call.quoteId) {
       call.status = "replay_fallback";
       call.fallbackUsed = true;
+      markLiveSandboxFallbackUsed(call);
     }
   }
 
@@ -68,6 +76,7 @@ export function activateNegotiationFallback(mission: Mission, reason: string): v
   if (closerCall) {
     closerCall.status = "replay_fallback";
     closerCall.fallbackUsed = true;
+    markLiveSandboxFallbackUsed(closerCall);
   }
   if (mission.negotiation) mission.negotiation.fallbackUsed = true;
 
@@ -316,6 +325,42 @@ function advanceNegotiationReplay(mission: Mission): void {
   mission.orchestration.replayActive = false;
 }
 
+function timeoutDiagnosticDetails(call: VendorCall): string {
+  const diagnostics = ensureLiveSandboxDiagnostics(call);
+  switch (getLiveSandboxTimeoutCause(call)) {
+    case "webhook_rejected":
+      return `${liveSandboxVendorLabel(call.vendorId)} timed out after save_quote reached Keywize but was rejected: ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}.`;
+    case "webhook_received_no_quote":
+      return `${liveSandboxVendorLabel(call.vendorId)} timed out after save_quote reached Keywize without persisting a quote.`;
+    case "answered_no_webhook":
+      return `${liveSandboxVendorLabel(call.vendorId)} phone answered, but the save_quote webhook never reached Keywize before timeout.`;
+    case "no_answer_observed":
+      return `${liveSandboxVendorLabel(call.vendorId)} did not produce an observed answer or save_quote webhook before timeout.`;
+  }
+}
+
+function recordLiveQuoteTimeout(mission: Mission): void {
+  const pendingCalls = mission.vendorCalls.filter(
+    (call) => call.role === "caller" && !call.quoteId
+  );
+  for (const call of pendingCalls) {
+    markLiveSandboxTimedOut(call);
+    addMissionEvent(mission, {
+      event: "live_quote_leg_timed_out",
+      details: timeoutDiagnosticDetails(call),
+      vendorId: call.vendorId,
+      category: "status",
+      source: "live_sandbox",
+    });
+  }
+  addMissionEvent(mission, {
+    event: "live_quote_wait_timed_out",
+    details: `Timed out waiting for all controlled sandbox quotes. ${mission.quotes.length}/3 were stored before replay.`,
+    category: "status",
+    source: "live_sandbox",
+  });
+}
+
 export function advanceMissionOrchestration(mission: Mission): boolean {
   const now = Date.now();
   const liveFallbackAt = mission.orchestration.liveFallbackAt
@@ -324,7 +369,11 @@ export function advanceMissionOrchestration(mission: Mission): boolean {
 
   if (!mission.orchestration.replayActive && liveFallbackAt && now >= liveFallbackAt) {
     if (mission.status === "calling_vendors") {
-      activateReliableFallback(mission, "The live sandbox calls did not produce complete quotes in time.");
+      recordLiveQuoteTimeout(mission);
+      activateReliableFallback(
+        mission,
+        "The bounded live sandbox wait ended before all three structured quotes were saved. See Live proof diagnostics below."
+      );
     } else if (mission.status === "negotiating") {
       activateNegotiationFallback(mission, "The live Closer call did not confirm terms in time.");
     }

@@ -93,7 +93,7 @@ Open `/intake`, leave **Reliable Demo** selected, and submit the authorized form
 
 ### Optional live sandbox proof
 
-Select **Live Sandbox Proof** only after configuring the server-only allowlist documented in [`docs/ELEVENLABS_SETUP.md`](docs/ELEVENLABS_SETUP.md#judge-demo-execution-modes). It can dial only team-controlled persona endpoints. The browser never supplies or receives a destination, agent ID, or phone number ID. Missing configuration, failed initiation, or an incomplete live result visibly falls back to the reliable replay.
+Select **Live Sandbox Proof** only after configuring the server-only allowlist and roleplay procedure documented in [`docs/ELEVENLABS_SETUP.md`](docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure). It can dial only team-controlled persona endpoints. Calls run sequentially, and the receiving tester must answer as Vendor A, B, then C using the on-screen facts. The browser never supplies or receives a destination, agent ID, phone number ID, or raw provider ID. Safe status diagnostics explain unanswered calls, missing or rejected `save_quote` webhooks, timeout, and the visibly labeled reliable replay fallback.
 
 ## Docs
 

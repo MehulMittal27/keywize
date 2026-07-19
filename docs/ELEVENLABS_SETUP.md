@@ -151,15 +151,48 @@ KEYWIZE_SANDBOX_VENDOR_B_PHONE=
 KEYWIZE_SANDBOX_VENDOR_C_PHONE=
 ```
 
-`ELEVENLABS_AGENT_PHONE_NUMBER_ID` is the linked outbound phone number provider ID, not a destination phone number. Existing deployments that use `ELEVENLABS_SANDBOX_PHONE_NUMBER_ID` remain supported as a backward-compatible alias, but new Vercel configuration should use the canonical name above. `ELEVENLABS_ENVIRONMENT` is an optional ElevenLabs environment selector. `KEYWIZE_LIVE_SANDBOX_FALLBACK_MS` is an optional timeout and defaults to 20000 milliseconds.
+`ELEVENLABS_AGENT_PHONE_NUMBER_ID` is the linked outbound phone number provider ID, not a destination phone number. Existing deployments that use `ELEVENLABS_SANDBOX_PHONE_NUMBER_ID` remain supported as a backward-compatible alias, but new Vercel configuration should use the canonical name above. `ELEVENLABS_ENVIRONMENT` is an optional ElevenLabs environment selector. `KEYWIZE_LIVE_SANDBOX_FALLBACK_MS` is an optional bounded wait for all three quotes. It defaults to 120000 milliseconds and is clamped between 45000 and 180000 milliseconds.
 
 Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured` and `missingEnvNames` only. It never returns configured values. A missing-variable fallback also names only the canonical missing variables, for example `Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE`.
 
-The browser sends only a mission ID, vendor slot, and role. `/api/elevenlabs/call` rejects raw destination numbers, and the server selects the role-specific agent and allowlisted destination. Caller receives job and service-area facts but not the user's budget or competing quote. Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
+### Live sandbox test procedure
 
-If any live configuration is absent, call initiation fails, or correlated tool results do not arrive before the timeout, the same mission visibly switches to the reliable simulated replay. The UI keeps the `Live Sandbox` badge and displays the fallback reason, including canonical missing variable names when configuration is incomplete. This prevents live transport from becoming the critical demo path.
+The linked ElevenLabs/Twilio outbound number calls the configured A destination first. After A's `save_quote` succeeds, Keywize calls B, then C. Sequential calls let one captain use a personal test phone for all three slots without simultaneous calls. The browser never supplies a destination, and no arbitrary locksmith or business number can be dialed.
 
-Live sandbox writes require `missionId` and `callId` correlation that matches the server's private call registry. Existing reliable demo tool payload aliases remain supported. Update a sandbox agent's tool schema only as a deliberate reviewed configuration change. Do not patch live agents or tools while testing this web flow.
+Before selecting **Live Sandbox Proof**, keep this roleplay card open. Answer the incoming calls and stay connected through the Caller's final readback:
+
+1. **Vendor A:** Say the service call starts at `$39`, the technician decides labor and drilling on site, ETA is 20 minutes, and no ID is required. Do not confirm an all-in total.
+2. **Vendor B:** Say `$130 all-in`: `$40` dispatch plus `$90` labor, 30-minute ETA, no-drill first, ID required, no other fees, and a 90-day warranty.
+3. **Vendor C:** Say `$165 all-in`: `$45` dispatch plus `$120` labor, 15-minute ETA, non-destructive entry first, ID required, no other fees, and a one-year warranty.
+
+The Caller identifies the assigned sandbox persona in its opening. If a personal phone recipient answers as themselves, stays silent, or hangs up before supplying quote facts, the Caller has no truthful data for `save_quote`. Keywize must not invent those facts.
+
+The Caller receives job and service-area facts but not the user's budget or a competing quote. The Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
+
+### Webhook reachability and correlation
+
+The Caller agent's `save_quote` webhook must use the public HTTPS URL of the same deployed Keywize environment:
+
+```txt
+https://<deployed-keywize-host>/api/elevenlabs/tools
+```
+
+A localhost URL, stale preview URL, authentication wall, or deployment that cannot accept ElevenLabs requests means the tool never reaches Keywize. Open the deployment's safe mission diagnostics instead of exposing request bodies or provider identifiers. Do not test reachability by printing keys, phone numbers, agent IDs, tool IDs, or conversation IDs.
+
+Live writes require private call correlation. Current tool schemas send `missionId`, `callId`, and `vendorId` from outbound runtime variables; the route also recognizes ElevenLabs' provider conversation envelope for compatibility. The server validates that correlation against its private registry. Existing reliable demo payload aliases remain supported. Updating or replacing a hosted agent remains a deliberate reviewed operation. Editing this repository alone does not change an existing hosted tool.
+
+### Reading live proof diagnostics
+
+The mission UI exposes only vendor-slot names and safe statuses:
+
+- **Live call started** means ElevenLabs accepted the allowlisted outbound request. It does not claim the phone was answered.
+- **Phone answered** means server-side conversation status entered an active or completed phone session.
+- **save_quote webhook never reached Keywize** means no quote tool request was observed before the call ended or timed out. Verify the public webhook URL and that the tester supplied the roleplay facts.
+- **save_quote webhook called but rejected** includes only safe missing-field or correlation reasons. It never exposes payload values or provider IDs.
+- **Timed out waiting for all quotes** means the bounded wait ended before all three correlated quotes were stored.
+- **Disclosed reliable replay used** means only missing demo results are being completed from the labeled persona fixtures.
+
+If configuration is absent, initiation fails, or complete correlated tool results do not arrive before the timeout, the same mission visibly switches to reliable simulated replay. The UI keeps the `Live Sandbox` badge and labels the fallback. This prevents live transport from becoming the critical judge path.
 
 The MVP mission repository is process-wide memory so Next.js route and server-component bundles share demo state. It is not production durability. A production live deployment still needs a database, queue, authenticated webhooks, idempotency storage, and verified post-call lifecycle handling.
 
@@ -306,7 +339,7 @@ Save a structured locksmith quote from a vendor call:
     "oldKeyDisabled": true,
     "keysIncluded": 2,
     "warranty": "30 days",
-    "quoteConfidence": "high",
+    "quoteConfidence": "firm_before_arrival",
     "redFlags": "",
     "transcriptEvidence": "The total should be 165 if it is a standard deadbolt.",
     "transcript": "Example transcript excerpt."

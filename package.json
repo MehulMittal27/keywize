@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:live-sandbox-config": "tsx --test tests/liveSandboxConfig.test.ts",
+    "test:live-sandbox": "tsx --test tests/liveSandbox*.test.ts",
     "create:elevenlabs-agents": "node scripts/create-elevenlabs-agents.mjs"
   },
   "dependencies": {
