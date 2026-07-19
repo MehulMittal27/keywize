@@ -256,18 +256,22 @@ function getToolParameterFields(toolName) {
   return fields;
 }
 
-function buildParametersSchema(toolName) {
+function buildInlineParametersSchema(toolName) {
+  const fields = getToolParameterFields(toolName);
+
   return {
-    id: "parameters",
     type: "object",
     description: TOOL_PARAMETERS_DESCRIPTION,
-    required: true,
-    properties: getToolParameterFields(toolName).map((field) => ({
-      id: field.name,
-      type: field.type,
-      description: buildParameterDescription(toolName, field),
-      required: field.required,
-    })),
+    properties: Object.fromEntries(
+      fields.map((field) => [
+        field.name,
+        {
+          type: field.type,
+          description: buildParameterDescription(toolName, field),
+        },
+      ]),
+    ),
+    required: fields.filter((field) => field.required).map((field) => field.name),
   };
 }
 
@@ -285,27 +289,22 @@ function buildParameterDescription(toolName, field) {
   return `${intent}. ${hint}`;
 }
 
-function buildRequestBodySchema(toolName) {
-  // ElevenLabs currently renders webhook body parameters from an array of
-  // property objects with stable id fields. Nested object fields must be nested
-  // under that object's own properties array, such as the parameters property
-  // containing { id: "caseType", ... }. This matches the working ConvAI tool
-  // PATCH payload shape used in the ElevenLabs dashboard.
+function buildInlineRequestBodySchema(toolName) {
+  // Agent creation validates inline webhook tools with a dictionary-style,
+  // JSON-schema-like shape. This differs from the standalone ConvAI tool
+  // PATCH/editor payload shape, which may use properties arrays with id fields.
   return {
-    id: "request_body",
     type: "object",
     description: `JSON body for the Keywize ${toolName} webhook tool.`,
-    required: true,
-    properties: [
-      {
-        id: "tool_name",
+    properties: {
+      tool_name: {
         type: "string",
         description: "Exact Keywize tool name to execute.",
-        constant_value: toolName,
-        required: true,
+        enum: [toolName],
       },
-      buildParametersSchema(toolName),
-    ],
+      parameters: buildInlineParametersSchema(toolName),
+    },
+    required: ["tool_name", "parameters"],
   };
 }
 
@@ -318,15 +317,12 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
       url: webhookUrl,
       method: "POST",
       path_params_schema: {},
-      query_params_schema: [],
-      request_headers: [
-        {
-          name: "Content-Type",
-          value: "application/json",
-        },
-      ],
+      query_params_schema: {},
+      request_headers: {
+        "Content-Type": "application/json",
+      },
       content_type: "application/json",
-      request_body_schema: buildRequestBodySchema(toolName),
+      request_body_schema: buildInlineRequestBodySchema(toolName),
     },
   };
 }
@@ -378,7 +374,7 @@ function validateElevenLabsToolSchema(payloads) {
         throw new Error(`${name} tool ${tool.name} is missing request_body_schema.`);
       }
 
-      assertWebhookApiSchemaMatchesPatchShape(tool.api_schema, `${name}.${tool.name}.api_schema`);
+      assertWebhookApiSchemaMatchesInlineCreateShape(tool.api_schema, `${name}.${tool.name}.api_schema`);
       assertNoUnsupportedSchemaKeys(schema, `${name}.${tool.name}.request_body_schema`);
       assertToolBodySchemaIsVisible(schema, tool.name, `${name}.${tool.name}.request_body_schema`);
       assertToolBodyPropertySources(schema, `${name}.${tool.name}.request_body_schema`);
@@ -386,7 +382,7 @@ function validateElevenLabsToolSchema(payloads) {
   }
 }
 
-function assertWebhookApiSchemaMatchesPatchShape(apiSchema, pathLabel) {
+function assertWebhookApiSchemaMatchesInlineCreateShape(apiSchema, pathLabel) {
   if (!apiSchema || typeof apiSchema !== "object") {
     throw new Error(`ElevenLabs tool ${pathLabel} must be an object.`);
   }
@@ -395,18 +391,12 @@ function assertWebhookApiSchemaMatchesPatchShape(apiSchema, pathLabel) {
     throw new Error(`ElevenLabs tool ${pathLabel}.path_params_schema must be an empty object.`);
   }
 
-  if (!Array.isArray(apiSchema.query_params_schema) || apiSchema.query_params_schema.length !== 0) {
-    throw new Error(`ElevenLabs tool ${pathLabel}.query_params_schema must be an empty array.`);
+  if (!apiSchema.query_params_schema || Array.isArray(apiSchema.query_params_schema) || Object.keys(apiSchema.query_params_schema).length !== 0) {
+    throw new Error(`ElevenLabs tool ${pathLabel}.query_params_schema must be an empty object for inline agent creation.`);
   }
 
-  const contentTypeHeader = Array.isArray(apiSchema.request_headers)
-    ? apiSchema.request_headers.find(
-        (header) => header.name === "Content-Type" && header.value === "application/json",
-      )
-    : null;
-
-  if (!contentTypeHeader) {
-    throw new Error(`ElevenLabs tool ${pathLabel}.request_headers must include Content-Type application/json in an array.`);
+  if (!apiSchema.request_headers || Array.isArray(apiSchema.request_headers) || apiSchema.request_headers["Content-Type"] !== "application/json") {
+    throw new Error(`ElevenLabs tool ${pathLabel}.request_headers must be an object with Content-Type application/json for inline agent creation.`);
   }
 
   if (apiSchema.content_type !== "application/json") {
@@ -420,8 +410,8 @@ function assertNoUnsupportedSchemaKeys(value, pathLabel) {
   }
 
   for (const [key, childValue] of Object.entries(value)) {
-    if (key === "const" || key === "additionalProperties") {
-      throw new Error(`ElevenLabs tool schema at ${pathLabel} uses unsupported key ${key}.`);
+    if (["id", "const", "additionalProperties", "constant_value"].includes(key)) {
+      throw new Error(`ElevenLabs inline tool schema at ${pathLabel} uses standalone-tool-only or unsupported key ${key}.`);
     }
 
     assertNoUnsupportedSchemaKeys(childValue, `${pathLabel}.${key}`);
@@ -430,35 +420,29 @@ function assertNoUnsupportedSchemaKeys(value, pathLabel) {
 
 function assertToolBodySchemaIsVisible(schema, toolName, pathLabel) {
   const properties = schema.properties;
-  const propertyIds = properties?.map((property) => property.id) ?? [];
 
-  if (schema.id !== "request_body" || schema.type !== "object" || !Array.isArray(properties)) {
-    throw new Error(`ElevenLabs tool schema at ${pathLabel} must be an object with a properties array.`);
+  if (schema.type !== "object" || !properties || Array.isArray(properties) || typeof properties !== "object") {
+    throw new Error(`ElevenLabs inline tool schema at ${pathLabel} must be an object with a properties dictionary.`);
   }
 
-  if (schema.required !== true) {
-    throw new Error(`ElevenLabs tool schema at ${pathLabel} must mark the request body as required.`);
-  }
+  assertRequiredList(schema.required, ["tool_name", "parameters"], pathLabel);
 
-  if (propertyIds.join(",") !== "tool_name,parameters") {
+  const propertyNames = Object.keys(properties);
+  if (propertyNames.join(",") !== "tool_name,parameters") {
     throw new Error(
-      `ElevenLabs tool schema at ${pathLabel} must expose exactly these body parameters in order: tool_name, parameters. Found: ${propertyIds.join(", ")}.`,
+      `ElevenLabs inline tool schema at ${pathLabel} must expose exactly these body parameters in order: tool_name, parameters. Found: ${propertyNames.join(", ")}.`,
     );
   }
 
-  const toolNameSchema = properties[0];
-  const parametersSchema = properties[1];
+  const toolNameSchema = properties.tool_name;
+  const parametersSchema = properties.parameters;
 
-  if (toolNameSchema.type !== "string" || toolNameSchema.required !== true) {
-    throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.tool_name must be a required string literal schema node.`);
+  if (toolNameSchema.type !== "string" || toolNameSchema.enum?.[0] !== toolName || toolNameSchema.enum.length !== 1) {
+    throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.tool_name must be a string enum containing only ${toolName}.`);
   }
 
-  if (parametersSchema.type !== "object" || parametersSchema.required !== true) {
-    throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.parameters must be a required object schema node.`);
-  }
-
-  if (toolNameSchema.constant_value !== toolName) {
-    throw new Error(`ElevenLabs tool schema at ${pathLabel} must set tool_name.constant_value to ${toolName}.`);
+  if (parametersSchema.type !== "object") {
+    throw new Error(`ElevenLabs body parameter ${pathLabel}.properties.parameters must be an object schema node.`);
   }
 
   assertParametersSchemaMatchesTool(parametersSchema, toolName, `${pathLabel}.properties.parameters`);
@@ -467,72 +451,68 @@ function assertToolBodySchemaIsVisible(schema, toolName, pathLabel) {
 function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel) {
   const fields = getToolParameterFields(toolName);
   const properties = parametersSchema.properties;
-  const propertyIds = properties?.map((property) => property.id) ?? [];
-  const expectedPropertyIds = fields.map((field) => field.name);
+  const expectedPropertyNames = fields.map((field) => field.name);
+  const expectedRequired = fields.filter((field) => field.required).map((field) => field.name);
 
   if (parametersSchema.description !== TOOL_PARAMETERS_DESCRIPTION) {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} has an invalid parameters description.`);
   }
 
-  if (!Array.isArray(properties)) {
-    throw new Error(`ElevenLabs tool schema at ${pathLabel} must use a properties array.`);
+  if (!properties || Array.isArray(properties) || typeof properties !== "object") {
+    throw new Error(`ElevenLabs inline tool schema at ${pathLabel} must use a properties dictionary.`);
   }
 
-  if (propertyIds.join(",") !== expectedPropertyIds.join(",")) {
+  const propertyNames = Object.keys(properties);
+  if (propertyNames.join(",") !== expectedPropertyNames.join(",")) {
     throw new Error(
-      `ElevenLabs tool schema at ${pathLabel} has wrong parameters. Found: ${propertyIds.join(", ")}.`,
+      `ElevenLabs inline tool schema at ${pathLabel} has wrong parameters. Found: ${propertyNames.join(", ")}.`,
     );
   }
 
-  for (const [index, field] of fields.entries()) {
-    const propertySchema = properties[index];
+  assertRequiredList(parametersSchema.required, expectedRequired, pathLabel);
+
+  for (const field of fields) {
+    const propertySchema = properties[field.name];
 
     if (propertySchema.type !== field.type) {
-      throw new Error(`ElevenLabs tool schema at ${pathLabel}.properties.${field.name} must be type ${field.type}.`);
+      throw new Error(`ElevenLabs inline tool schema at ${pathLabel}.properties.${field.name} must be type ${field.type}.`);
     }
 
-    if (propertySchema.required !== field.required) {
-      throw new Error(`ElevenLabs tool schema at ${pathLabel}.properties.${field.name} must set required to ${field.required}.`);
+    if (typeof propertySchema.description !== "string" || propertySchema.description.length === 0) {
+      throw new Error(`ElevenLabs inline tool schema at ${pathLabel}.properties.${field.name} must include an extraction description.`);
     }
   }
 }
 
+function assertRequiredList(actual, expected, pathLabel) {
+  if (!Array.isArray(actual) || actual.join(",") !== expected.join(",")) {
+    throw new Error(
+      `ElevenLabs inline tool schema at ${pathLabel}.required must be [${expected.join(", ")}].`,
+    );
+  }
+}
+
 function assertToolBodyPropertySources(schema, pathLabel) {
-  for (const propertySchema of schema.properties) {
-    assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertySchema.id}`);
+  for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
+    assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertyName}`);
   }
 }
 
 function assertSchemaNodeSources(schemaNode, pathLabel) {
   if (schemaNode?.type === "object") {
-    if (!Array.isArray(schemaNode.properties)) {
-      throw new Error(`ElevenLabs object schema at ${pathLabel} must contain a properties array.`);
+    if (!schemaNode.properties || Array.isArray(schemaNode.properties) || typeof schemaNode.properties !== "object") {
+      throw new Error(`ElevenLabs inline object schema at ${pathLabel} must contain a properties dictionary.`);
     }
 
-    for (const propertySchema of schemaNode.properties) {
-      assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertySchema.id}`);
+    for (const [propertyName, propertySchema] of Object.entries(schemaNode.properties)) {
+      assertSchemaNodeSources(propertySchema, `${pathLabel}.properties.${propertyName}`);
     }
 
     return;
   }
 
-  const nonDescriptionSourceKeys = [
-    "dynamic_variable",
-    "is_system_provided",
-    "constant_value",
-    "is_omitted",
-  ].filter((key) => Object.hasOwn(schemaNode, key));
-
-  if (nonDescriptionSourceKeys.length > 1) {
-    throw new Error(
-      `ElevenLabs literal schema property ${pathLabel} must set at most one non-description value source; found ${nonDescriptionSourceKeys.length}.`,
-    );
-  }
-
-  if (nonDescriptionSourceKeys.length === 0 && !Object.hasOwn(schemaNode, "description")) {
-    throw new Error(
-      `ElevenLabs literal schema property ${pathLabel} must set a description or one fixed/system value source.`,
-    );
+  if (typeof schemaNode?.description !== "string" || schemaNode.description.length === 0) {
+    throw new Error(`ElevenLabs inline literal schema property ${pathLabel} must set a description.`);
   }
 }
 
@@ -708,15 +688,19 @@ async function main() {
   validateElevenLabsGuardrails(payloads);
   validateElevenLabsToolSchema(payloads);
 
+  const existingAgentEnvKeys = AGENT_DEFINITIONS.map((definition) => definition.envKey).filter((envKey) =>
+    env.get(envKey),
+  );
+
   if (dryRun) {
     const toolSummary = payloads
       .map(({ name, payload }) => {
         const toolDetails = payload.conversation_config.agent.prompt.tools
           .map((tool) => {
             const bodyProperties = tool.api_schema.request_body_schema.properties;
-            const parametersProperty = bodyProperties.find((property) => property.id === "parameters");
-            const bodyParameterNames = bodyProperties.map((property) => property.id).join(", ");
-            const nestedParameterNames = parametersProperty.properties.map((property) => property.id).join(", ");
+            const parametersProperty = bodyProperties.parameters;
+            const bodyParameterNames = Object.keys(bodyProperties).join(", ");
+            const nestedParameterNames = Object.keys(parametersProperty.properties).join(", ");
             return `${tool.name} [body: ${bodyParameterNames}; parameters.properties: ${nestedParameterNames}]`;
           })
           .join(", ");
@@ -729,10 +713,21 @@ async function main() {
     console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
     console.log("Platform guardrail sanity check passed: focus, prompt injection, and Keywize custom guardrails are configured for every agent.");
     console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
-    console.log("Tool schema sanity check passed: every webhook request_body_schema uses properties arrays with id fields for tool_name, parameters, and nested tool-specific fields.");
+    console.log("Tool schema sanity check passed: every inline webhook request_body_schema uses dictionary properties and required lists for tool_name, parameters, and nested tool-specific fields.");
     console.log(`Tool split:\n${toolSummary}`);
+    if (existingAgentEnvKeys.length > 0) {
+      console.log(
+        `Existing agent ID env keys detected: ${existingAgentEnvKeys.join(", ")}. Rerunning without --dry-run creates new agents; update existing webhook tool URLs separately if only NEXT_PUBLIC_APP_URL changed.`,
+      );
+    }
     console.log("No agents were created and the env file was not updated.");
     return;
+  }
+
+  if (existingAgentEnvKeys.length > 0) {
+    console.warn(
+      `Existing agent ID env keys detected: ${existingAgentEnvKeys.join(", ")}. This script creates fresh agents and will overwrite those env keys with new IDs. Press Ctrl+C now if you only meant to update existing webhook URLs after changing NEXT_PUBLIC_APP_URL.`,
+    );
   }
 
   const createdAgentIds = {};
