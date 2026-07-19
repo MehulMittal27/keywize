@@ -1,0 +1,98 @@
+{
+  "fixtureVersion": 1,
+  "mode": "elevenlabs_only_simulation",
+  "disclosure": "This is a scripted Keywize simulation inside ElevenLabs. No locksmith, vendor, phone number, or telephony provider is contacted.",
+  "vendors": [
+    {
+      "vendor": "Vendor A",
+      "initialPrice": 39,
+      "priceLabel": "starts at",
+      "allInTotal": null,
+      "etaMinutes": 20,
+      "isTotalAllIn": false,
+      "drillingPolicy": "The technician decides on site; no no-drill-first commitment was provided.",
+      "idRequired": false,
+      "quoteConfidence": "starts_at",
+      "risk": "High",
+      "voiceTrust": {
+        "interpretation": "Uncertainty signal only, not lie detection.",
+        "observations": [
+          "A long pause before the hidden-fee answer",
+          "Filler words: uh, well",
+          "Evasive wording: it depends on the lock"
+        ]
+      },
+      "transcriptEvidence": [
+        "It starts at $39, the tech will tell you the rest.",
+        "Uh... well, it depends on the lock.",
+        "Drilling is up to the technician."
+      ]
+    },
+    {
+      "vendor": "Vendor B",
+      "allInTotal": 130,
+      "etaMinutes": 30,
+      "isTotalAllIn": true,
+      "drillingPolicy": "Non-destructive entry first; drilling requires an explained changed scope and customer approval.",
+      "idRequired": true,
+      "quoteConfidence": "firm_before_arrival",
+      "risk": "Low",
+      "transcriptEvidence": [
+        "It is $130 all-in, including every routine fee and tax.",
+        "We try non-destructive entry first.",
+        "We require ID and proof of residence or authorization before opening."
+      ]
+    },
+    {
+      "vendor": "Vendor C",
+      "allInTotal": 165,
+      "etaMinutes": 15,
+      "isTotalAllIn": true,
+      "drillingPolicy": "Non-destructive entry first; customer approval is required before drilling or any price change.",
+      "idRequired": true,
+      "quoteConfidence": "firm_before_arrival",
+      "riskBeforeNegotiation": "Medium",
+      "riskAfterNegotiation": "Low",
+      "transcriptEvidence": [
+        "It is $165 all-in for the described job.",
+        "We can be there in 15 minutes.",
+        "Any changed scope would be explained and approved before work starts."
+      ]
+    }
+  ],
+  "negotiation": {
+    "targetVendor": "Vendor C",
+    "beforePrice": 165,
+    "afterPrice": 145,
+    "etaMinutes": 15,
+    "isTotalAllIn": true,
+    "onlyPermittedLeverage": {
+      "vendor": "Vendor B",
+      "allInTotal": 130,
+      "isTotalAllIn": true,
+      "drillingPolicy": "Non-destructive entry first"
+    },
+    "closerEvidence": "Vendor B confirmed $130 all-in with non-destructive entry first. You are faster. Can you do $145 all-in while keeping the 15-minute ETA and approval before any drilling or price change?",
+    "vendorEvidence": "We can do $145 all-in, keep the 15-minute ETA, and require approval before any drilling or price change."
+  },
+  "finalRanking": [
+    {
+      "rank": 1,
+      "vendor": "Vendor C",
+      "label": "Negotiated winner",
+      "reason": "$145 all-in, 15-minute ETA, non-destructive entry first, and approval before changed scope."
+    },
+    {
+      "rank": 2,
+      "vendor": "Vendor B",
+      "label": "Fallback",
+      "reason": "$130 all-in, 30-minute ETA, non-destructive entry first, and ID required."
+    },
+    {
+      "rank": 3,
+      "vendor": "Vendor A",
+      "label": "High risk",
+      "reason": "$39 starts-at pricing, no firm all-in total, vague drilling policy, and hidden-fee uncertainty."
+    }
+  ]
+}
