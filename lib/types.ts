@@ -1,4 +1,4 @@
-// Shared types for Keywize — single source of truth for all lib, API, and UI code
+// Shared types for Keywize - single source of truth for all lib, API, and UI code
 
 export type CaseType =
   | "room_key_lost"
@@ -37,13 +37,43 @@ export type QuestionType =
   | "eta"
   | "final_confirmation";
 
+export type MissionMode = "reliable_demo" | "live_sandbox";
+
 export type MissionStatus =
   | "intake_complete"
   | "calling_vendors"
   | "quotes_collected"
+  | "quotes_ready"
   | "awaiting_vendor_selection"
   | "negotiating"
+  | "terms_secured"
+  | "awaiting_approval"
+  | "approved"
+  | "failed"
   | "session_2_complete";
+
+export type VendorId = "vendor_a" | "vendor_b" | "vendor_c";
+
+export type CallRole = "caller" | "closer";
+
+export type VendorCallStatus =
+  | "queued"
+  | "ringing"
+  | "connected"
+  | "quote_saved"
+  | "complete"
+  | "failed"
+  | "replay_fallback";
+
+export type MissionEventCategory =
+  | "status"
+  | "call"
+  | "tool"
+  | "negotiation"
+  | "fallback"
+  | "approval";
+
+export type MissionEventSource = "reliable_demo" | "live_sandbox" | "fallback";
 
 // ─── Job Spec ─────────────────────────────────────────────────────────────────
 
@@ -93,6 +123,7 @@ export type VoiceTrustSignal = {
 export type Quote = {
   id: string;
   missionId: string;
+  vendorId?: VendorId;
   vendorName: string;
   phone: string;
   etaMinutes: number | null;
@@ -122,9 +153,75 @@ export type Quote = {
 // ─── Mission ──────────────────────────────────────────────────────────────────
 
 export type CallLogEntry = {
+  id: string;
+  sequence: number;
   timestamp: string;
   event: string;
   details?: string;
+  vendorId?: VendorId;
+  category: MissionEventCategory;
+  source: MissionEventSource;
+  toolName?:
+    | "quote_saved"
+    | "uncertainty_analyzed"
+    | "risk_recalculated"
+    | "negotiation_persisted";
+};
+
+export type VendorCall = {
+  id: string;
+  vendorId: VendorId;
+  vendorName: string;
+  role: CallRole;
+  status: VendorCallStatus;
+  mode: MissionMode;
+  quoteId?: string;
+  startedAt?: string;
+  completedAt?: string;
+  fallbackUsed: boolean;
+};
+
+export type LeverageSnapshot = {
+  sourceQuoteId: string;
+  sourceVendorId: VendorId;
+  vendorName: string;
+  total: number;
+  isTotalAllIn: true;
+  etaMinutes: number | null;
+  materialTerms: string[];
+  evidence: string[];
+  capturedAt: string;
+};
+
+export type NegotiationResult = {
+  targetQuoteId: string;
+  targetVendorId: VendorId;
+  status: "in_progress" | "secured" | "no_improvement" | "failed";
+  beforePrice: number;
+  afterPrice?: number;
+  isTotalAllIn?: boolean;
+  changedTerms: string[];
+  leverage: LeverageSnapshot;
+  transcriptEvidence: string[];
+  startedAt: string;
+  completedAt?: string;
+  fallbackUsed: boolean;
+};
+
+export type MissionApproval = {
+  status: "pending" | "approved";
+  quoteId: string;
+  total: number;
+  dispatchAuthorized: false;
+  approvedAt?: string;
+};
+
+export type MissionOrchestration = {
+  replayActive: boolean;
+  quoteCursor: number;
+  negotiationCursor: number;
+  nextActionAt: string;
+  liveFallbackAt?: string;
 };
 
 export type RankingResult = {
@@ -136,15 +233,21 @@ export type RankingResult = {
 
 export type Mission = {
   id: string;
+  mode: MissionMode;
   jobSpec: JobSpec;
   quotes: Quote[];
   status: MissionStatus;
   callLog: CallLogEntry[];
+  vendorCalls: VendorCall[];
   recommendation: RankingResult | null;
-  /** Set after user picks a vendor from the ranked list (between session 1 and 2). */
+  negotiation: NegotiationResult | null;
+  approval: MissionApproval | null;
+  orchestration: MissionOrchestration;
+  fallbackReason?: string;
   selectedVendorId?: string;
-  /** Set after session 2 succeeds and the user uploads the call recording. */
   recordingUrl?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 // ─── Case Definition ──────────────────────────────────────────────────────────
@@ -183,5 +286,6 @@ export type VoiceTrustInput = {
 
 export type ElevenLabsCallPayload = {
   missionId: string;
-  toNumber: string;
+  vendorId: VendorId;
+  role: CallRole;
 };

@@ -1,314 +1,409 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { VoiceTrustBadge } from "../../../components/VoiceTrustBadge";
-import { ConfidenceWaveform } from "../../../components/ConfidenceWaveform";
-import type { Mission } from "../../../lib/types";
+import { ConfidenceWaveform } from "@/components/ConfidenceWaveform";
+import { VoiceTrustBadge } from "@/components/VoiceTrustBadge";
+import type { Mission, Quote, VendorCallStatus } from "@/lib/types";
 
-const STEPS = [
-  "Intake complete",
-  "Finding locksmiths nearby",
-  "Calling Speedy Lock & Key",
-  "Calling Neighborhood Locksmith",
-  "Calling Premium Secure",
-  "Negotiating with Premium Secure",
-  "Recommendation ready",
-];
+const STATUS_LABELS: Record<VendorCallStatus, string> = {
+  queued: "Queued",
+  ringing: "Ringing",
+  connected: "Connected",
+  quote_saved: "Quote saved",
+  complete: "Complete",
+  failed: "Failed",
+  replay_fallback: "Replay fallback",
+};
+
+function humanize(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function modeLabel(mission: Mission): string {
+  if (mission.mode === "reliable_demo") return "Reliable Demo - simulated vendors";
+  if (mission.fallbackReason) return "Live Sandbox - reliable replay fallback";
+  return "Live Sandbox - controlled calls";
+}
+
+function QuoteCard({ quote, isFastest }: { quote: Quote; isFastest: boolean }) {
+  const signal = quote.voiceTrustSignals[0];
+  const isHighRisk = quote.riskLevel === "High";
+  const price = quote.totalEstimate === null
+    ? `Starts at $${quote.dispatchFee ?? "?"}`
+    : `$${quote.totalEstimate}`;
+
+  return (
+    <article
+      className={`relative overflow-hidden rounded-[28px] border bg-white p-6 shadow-sm transition-all ${
+        isHighRisk
+          ? "border-2 border-pink-200"
+          : isFastest
+            ? "border-2 border-black shadow-lg shadow-black/5"
+            : "border-black/5"
+      }`}
+    >
+      {isFastest && (
+        <span className="absolute right-0 top-0 rounded-bl-xl bg-black px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+          Fastest ETA
+        </span>
+      )}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-bold">{quote.vendorName}</h3>
+            <span
+              className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                quote.riskLevel === "High"
+                  ? "bg-pink-100 text-pink-700"
+                  : quote.riskLevel === "Low"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {quote.riskLevel} risk
+            </span>
+          </div>
+          <p className="text-sm text-gray-500">
+            {quote.isTotalAllIn ? "All-in quote confirmed" : "No firm all-in total"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-serif text-2xl font-bold">{price}</p>
+          <p className="text-sm text-gray-500">
+            {quote.etaMinutes === null ? "ETA unknown" : `${quote.etaMinutes} min ETA`}
+          </p>
+        </div>
+      </div>
+
+      {signal && (
+        <div
+          className={`mt-5 rounded-2xl border p-4 ${
+            signal.trustLevel === "Low"
+              ? "border-pink-100 bg-pink-50"
+              : "border-black/5 bg-[#f8f7f3]"
+          }`}
+        >
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <VoiceTrustBadge level={signal.trustLevel} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              Uncertainty signal, not lie detection
+            </span>
+          </div>
+          <p className="text-sm italic text-gray-700">&ldquo;{signal.vendorText}&rdquo;</p>
+          <div className="mt-3">
+            <ConfidenceWaveform score={quote.voiceTrustScore} />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+          {quote.drillingPolicy}
+        </span>
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+          {quote.idRequired === true ? "Proof required" : quote.idRequired === false ? "No proof required" : "Proof policy unknown"}
+        </span>
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+          Risk {quote.riskScore}/100
+        </span>
+      </div>
+
+      {quote.transcriptEvidence[0] && (
+        <blockquote className="mt-4 border-l-2 border-black/15 pl-3 text-xs leading-relaxed text-gray-600">
+          &ldquo;{quote.transcriptEvidence[0]}&rdquo;
+        </blockquote>
+      )}
+    </article>
+  );
+}
 
 export default function MissionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
-  const [step, setStep] = useState(0);
-  const [isNegotiating, setIsNegotiating] = useState(false);
-  const [negotiated, setNegotiated] = useState(false);
-  const [vendorCPrice, setVendorCPrice] = useState(165);
   const [mission, setMission] = useState<Mission | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [isNegotiating, setIsNegotiating] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    fetch(`/api/missions/${id}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: Mission | null) => {
-        if (cancelled || !data) return;
-        setMission(data);
-        const premium = data.quotes.find((quote) => quote.vendorName === "Premium Secure");
-        if (premium?.totalEstimate) setVendorCPrice(premium.totalEstimate);
-      })
-      .catch(() => {
-        // Keep the demo page reliable with built-in mock values.
-      });
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/missions/${id}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Mission unavailable");
+        const nextMission = (await response.json()) as Mission;
+        if (!active) return;
+        setMission(nextMission);
+        setLoadError("");
+        if (nextMission.status !== "negotiating") setIsNegotiating(false);
+      } catch {
+        if (active) setLoadError("Mission updates paused. Retrying automatically...");
+      } finally {
+        if (active) timer = setTimeout(poll, 700);
+      }
+    };
 
+    void poll();
     return () => {
-      cancelled = true;
+      active = false;
+      if (timer) clearTimeout(timer);
     };
   }, [id]);
 
-  const jobSpec = mission?.jobSpec;
+  const quoteByVendor = useMemo(
+    () => new Map(mission?.quotes.map((quote) => [quote.vendorId, quote]) ?? []),
+    [mission]
+  );
+  const fastestEta = mission?.quotes.reduce<number | null>(
+    (fastest, quote) =>
+      quote.etaMinutes !== null && (fastest === null || quote.etaMinutes < fastest)
+        ? quote.etaMinutes
+        : fastest,
+    null
+  );
+  const quoteCalls = mission?.vendorCalls.filter((call) => call.role === "caller") ?? [];
+  const reportReady = Boolean(
+    mission && ["terms_secured", "awaiting_approval", "approved"].includes(mission.status)
+  );
+  const quotesReady = Boolean(
+    mission && ["quotes_ready", "awaiting_vendor_selection"].includes(mission.status)
+  );
 
-  // Auto-progress through steps
-  useEffect(() => {
-    if (step < 5) {
-      const timer = setTimeout(() => setStep(s => s + 1), 1600);
-      return () => clearTimeout(timer);
-    }
-  }, [step]);
-
-  const handleTriggerNegotiation = async () => {
+  const negotiateFastest = async () => {
+    if (!mission) return;
     setIsNegotiating(true);
-    setStep(5);
+    setLoadError("");
     try {
-      const res = await fetch("/api/negotiate", {
+      const response = await fetch("/api/negotiate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ missionId: id }),
+        body: JSON.stringify({ missionId: mission.id }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setMission(data.mission);
-      }
-    } catch {
-      // ignore — fallback to mock
-    }
-    setTimeout(() => {
-      setVendorCPrice(145);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Negotiation could not start");
+      setMission(data.mission as Mission);
+    } catch (error) {
       setIsNegotiating(false);
-      setNegotiated(true);
-      setStep(6);
-    }, 2200);
+      setLoadError(error instanceof Error ? error.message : "Negotiation could not start");
+    }
   };
 
-  const showA = step >= 2;
-  const showB = step >= 3;
-  const showC = step >= 4;
+  if (!mission) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fbfaf7] px-6 text-center">
+        <div>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-black/10 border-t-black" />
+          <p className="font-medium">Loading the stored mission state...</p>
+          {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#fbfaf7] text-[#111111] font-sans pb-24">
-      <nav className="flex items-center justify-between px-8 py-5 max-w-5xl mx-auto border-b border-black/5">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
-          <div className="w-6 h-6 bg-[#111111] rounded flex items-center justify-center">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
-            </svg>
-          </div>
+    <div className="min-h-screen bg-[#fbfaf7] pb-24 text-[#111111]">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between border-b border-black/5 px-6 py-5">
+        <button className="flex items-center gap-2" onClick={() => router.push("/")}>
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-black text-sm text-white">⌁</span>
           <span className="font-bold tracking-tight">Keywize</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-500">Mission: {id}</span>
-          <span className="flex h-2 w-2 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#30a985] opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#30a985]"></span>
-          </span>
+        </button>
+        <div className="text-right">
+          <p className="text-xs font-medium text-gray-400">Mission {id.slice(0, 8)}</p>
+          <p className="text-sm font-semibold">{humanize(mission.status)}</p>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto mt-8 px-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-        {/* LEFT: Job Spec + Live Call Log + Actions */}
-        <div className="lg:col-span-1 space-y-5">
-
-          {/* Job Spec Card */}
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
-            <h2 className="text-lg font-serif font-semibold mb-4">Job Spec</h2>
-            <ul className="space-y-2 text-sm">
-              <li className="flex justify-between">
-                <span className="text-gray-500">Issue:</span>
-                <span className="font-semibold">{jobSpec?.caseType.replaceAll("_", " ") ?? "Broken key inside lock"}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-gray-500">Door:</span>
-                <span className="font-semibold">{jobSpec ? `${jobSpec.doorType.replaceAll("_", " ")} · ${jobSpec.lockType.replaceAll("_", " ")}` : "Main entry · Deadbolt"}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-gray-500">Location:</span>
-                <span className="font-semibold">{jobSpec ? `${jobSpec.locationCity}, ${jobSpec.locationZip}` : "SF, 94109"}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-gray-500">Urgency:</span>
-                <span className="font-semibold">{jobSpec?.urgency.replaceAll("_", " ") ?? "Locked out NOW"}</span>
-              </li>
-              <li className="flex justify-between border-t border-gray-100 pt-2 mt-2">
-                <span className="text-gray-500">Ideal price:</span>
-                <span className="font-semibold">${jobSpec?.idealPrice ?? 120}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-red-500 font-medium">Max Budget:</span>
-                <span className="font-bold text-red-600">${jobSpec?.maxPrice ?? 150}</span>
-              </li>
-            </ul>
+      <header className="mx-auto max-w-6xl px-6 pb-8 pt-10">
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <span
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold ${
+              mission.mode === "live_sandbox"
+                ? "border-pink-200 bg-pink-50 text-pink-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {modeLabel(mission)}
+          </span>
+          <span className="rounded-full bg-black px-3 py-1.5 text-xs font-bold text-white">
+            {humanize(mission.status)}
+          </span>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-gray-400">
+              Evidence-backed vendor mission
+            </p>
+            <h1 className="max-w-3xl font-serif text-4xl leading-tight tracking-tight sm:text-5xl">
+              Three clear quotes. One safe decision under pressure.
+            </h1>
           </div>
+          <div className="rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm">
+            <p className="text-xs text-gray-500">Hard maximum</p>
+            <p className="font-serif text-3xl font-bold">${mission.jobSpec.maxPrice}</p>
+          </div>
+        </div>
+      </header>
 
-          {/* Live Call Log */}
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
-            <h2 className="text-lg font-serif font-semibold mb-4">Live Call Log</h2>
-            <div className="space-y-3">
-              {STEPS.map((s, i) => {
-                const done = i < step;
-                const active = i === step;
-                return (
-                  <div key={i} className="flex items-center gap-3 text-sm">
-                    <div className="flex flex-col items-center">
-                      <div className={`w-2 h-2 rounded-full mt-0.5 transition-all ${done ? "bg-[#30a985]" : active ? "bg-[#30a985] animate-pulse scale-125" : "bg-gray-200"}`} />
-                    </div>
-                    <span className={done ? "text-gray-500" : active ? "font-semibold text-black" : "text-gray-300"}>
-                      {s}
-                    </span>
-                  </div>
-                );
-              })}
+      <main className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[340px_1fr]">
+        <aside className="space-y-5">
+          {mission.fallbackReason && (
+            <div className="rounded-3xl border border-pink-200 bg-pink-50 p-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-pink-700">Visible fallback</p>
+              <p className="mt-2 text-sm leading-relaxed text-pink-900">{mission.fallbackReason}</p>
+              <p className="mt-2 text-xs text-pink-700">No arbitrary business or phone number was dialed.</p>
             </div>
-          </div>
+          )}
 
-          {/* Actions */}
-          {step >= 4 && (
+          <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+            <h2 className="font-serif text-lg font-semibold">Job spec</h2>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Issue</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.caseType)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Door</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.doorType)} · {humanize(mission.jobSpec.lockType)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Area</dt><dd className="text-right font-semibold">{mission.jobSpec.locationCity}, {mission.jobSpec.locationZip}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-black/5 pt-3"><dt className="text-gray-500">Authorization</dt><dd className="font-semibold text-emerald-700">Confirmed</dd></div>
+            </dl>
+            <p className="mt-4 rounded-xl bg-[#f8f7f3] p-3 text-xs leading-relaxed text-gray-600">
+              Proof of residence or authorization must be shown before entry. No dispatch is authorized by this mission.
+            </p>
+          </section>
+
+          <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+            <h2 className="font-serif text-lg font-semibold">Call state</h2>
+            <div className="mt-4 space-y-4">
+              {mission.vendorCalls.map((call) => (
+                <div key={call.id} className="flex items-center gap-3">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      call.status === "complete"
+                        ? "bg-emerald-500"
+                        : call.status === "failed" || call.status === "replay_fallback"
+                          ? "bg-pink-400"
+                          : call.status === "queued"
+                            ? "bg-gray-200"
+                            : "animate-pulse bg-amber-400"
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{call.role === "closer" ? "Closer · " : ""}{call.vendorName}</p>
+                    <p className="text-xs text-gray-500">
+                      {STATUS_LABELS[call.status]}{call.fallbackUsed ? " · simulated fallback" : ""}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {loadError && <p className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{loadError}</p>}
+
+          {(quotesReady || mission.status === "negotiating" || reportReady) && (
             <div className="space-y-3">
               <button
-                onClick={handleTriggerNegotiation}
-                disabled={isNegotiating || negotiated}
-                className={`w-full py-4 rounded-full font-medium text-white transition-all shadow-md ${isNegotiating || negotiated ? "bg-gray-300 cursor-not-allowed" : "bg-[#111111] hover:bg-gray-800 active:scale-95"}`}
+                onClick={negotiateFastest}
+                disabled={!quotesReady || isNegotiating}
+                className="w-full rounded-full bg-black px-5 py-4 font-semibold text-white shadow-lg shadow-black/10 transition-transform enabled:hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-gray-300"
               >
-                {isNegotiating ? "AI is Negotiating..." : negotiated ? "✓ Negotiation Complete" : "Trigger Demo Negotiation"}
+                {mission.status === "negotiating" || isNegotiating
+                  ? "Negotiating fastest option..."
+                  : reportReady
+                    ? "Terms secured"
+                    : "Negotiate fastest option"}
               </button>
-
-              {negotiated && (
+              {reportReady && (
                 <button
-                  onClick={() => router.push(`/report/${id}`)}
-                  className="w-full py-4 rounded-full font-medium text-[#111111] bg-white border border-[#111111] hover:bg-gray-50 transition-all"
+                  onClick={() => router.push(`/report/${mission.id}`)}
+                  className="w-full rounded-full border border-black bg-white px-5 py-4 font-semibold"
                 >
-                  View Final Report →
+                  View stored final report →
                 </button>
               )}
             </div>
           )}
-        </div>
+        </aside>
 
-        {/* RIGHT: Vendor Quotes */}
-        <div className="lg:col-span-2">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-5">
-            Vendor Quotes ({[showA, showB, showC].filter(Boolean).length}/3)
-          </h2>
-
-          <div className="space-y-5">
-
-            {/* Vendor A — Bait & Switch — HIGH RISK */}
-            {showA && (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold">Speedy Lock &amp; Key</h3>
-                    <p className="text-sm text-pink-600 font-medium">Refused total estimate</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-serif">Starts at $39</span>
-                    <p className="text-sm text-gray-500">20 min ETA</p>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-pink-50 rounded-2xl mb-4 border border-pink-100">
-                  <div className="flex items-center gap-3 mb-2">
-                    <VoiceTrustBadge level="Low" />
-                    <span className="text-xs font-bold text-pink-700 uppercase tracking-wide">HIGH RISK DETECTED</span>
-                  </div>
-                  <p className="text-sm italic text-gray-700">&ldquo;Uh… well, it depends on the lock.&rdquo;</p>
-                  <div className="mt-3"><ConfidenceWaveform score={35} /></div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1 bg-pink-50 text-pink-600 border border-pink-100 rounded-full text-xs font-medium">Tech decides drilling</span>
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">No ID required</span>
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">Risk score: 85/100</span>
-                </div>
+        <div className="space-y-6">
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">Structured results</p>
+                <h2 className="font-serif text-2xl font-semibold">Vendor quotes</h2>
               </div>
-            )}
-
-            {/* Vendor B — Honest Local */}
-            {showB && (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold">Neighborhood Locksmith</h3>
-                    <p className="text-sm text-green-600 font-medium">All-in quote confirmed</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-serif">$130</span>
-                    <p className="text-sm text-gray-500">30 min ETA</p>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-green-50 rounded-2xl mb-4 border border-green-100">
-                  <div className="flex items-center gap-3 mb-2">
-                    <VoiceTrustBadge level="High" />
-                  </div>
-                  <p className="text-sm italic text-gray-700">&ldquo;It&rsquo;s $130 total, including dispatch.&rdquo;</p>
-                  <div className="mt-3"><ConfidenceWaveform score={95} /></div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-xs font-medium">No-drill first</span>
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">ID verified</span>
-                  <span className="px-3 py-1 bg-green-50 text-green-600 border border-green-100 rounded-full text-xs font-medium">Risk score: 10/100</span>
-                </div>
-              </div>
-            )}
-
-            {/* Vendor C — Premium Fast, negotiable */}
-            {showC && (
-              <div className="bg-white p-6 rounded-3xl shadow-md border-2 border-[#111111] relative overflow-hidden">
-                <div className="absolute top-0 right-0 bg-[#111111] text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-bl-xl">Fastest ETA</div>
-
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold">Premium Secure</h3>
-                    <p className={`text-sm font-medium ${negotiated ? "text-[#30a985]" : "text-yellow-600"}`}>
-                      {negotiated ? "Negotiated · Low-med risk" : "Unclear pricing · Medium risk"}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {negotiated && <span className="text-lg text-gray-400 line-through">$165</span>}
-                      <span className={`text-2xl font-serif font-bold transition-colors ${negotiated ? "text-[#30a985]" : "text-[#111111]"}`}>
-                        ${vendorCPrice}
-                      </span>
+              <span className="text-sm font-semibold text-gray-500">{mission.quotes.length}/3 stored</span>
+            </div>
+            <div className="space-y-5">
+              {quoteCalls.map((call) => {
+                const quote = quoteByVendor.get(call.vendorId);
+                if (!quote) {
+                  return (
+                    <div key={call.id} className="rounded-[28px] border border-dashed border-black/10 bg-white/60 p-6">
+                      <div className="flex items-center gap-3">
+                        <span className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
+                        <div>
+                          <p className="font-semibold">{call.vendorName}</p>
+                          <p className="text-sm text-gray-500">Waiting for a persisted quote...</p>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-[#111111] font-semibold">15 min ETA</p>
-                  </div>
+                  );
+                }
+                return <QuoteCard key={quote.id} quote={quote} isFastest={quote.etaMinutes === fastestEta} />;
+              })}
+            </div>
+          </section>
+
+          {mission.negotiation && (
+            <section className="rounded-[28px] border border-purple-100 bg-purple-50 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-purple-600">Stored leverage</p>
+                  <h2 className="mt-1 font-serif text-2xl font-semibold">Vendor B → Vendor C</h2>
+                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-purple-900">
+                    {mission.negotiation.leverage.vendorName} confirmed ${mission.negotiation.leverage.total} all-in with no-drill-first. That stored quote is the only competitor claim used.
+                  </p>
                 </div>
-
-                {isNegotiating && (
-                  <div className="p-4 bg-purple-50 rounded-2xl mb-4 border border-purple-100 flex items-center gap-3">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
-                    </span>
-                    <span className="text-sm font-medium text-purple-800">
-                      &ldquo;I have a confirmed quote at $130 all-in with no-drill-first. Can you match it or include two keys?&rdquo;
-                    </span>
-                  </div>
-                )}
-
-                {!isNegotiating && negotiated && (
-                  <div className="p-4 bg-[#f7f5f0] rounded-2xl mb-4 border border-gray-200">
-                    <div className="flex items-center gap-3 mb-2">
-                      <VoiceTrustBadge level="Medium" />
-                      <span className="text-xs font-bold text-yellow-700 uppercase tracking-wide">VoiceTrust hesitation detected</span>
-                    </div>
-                    <p className="text-sm italic text-gray-700">&ldquo;Um, we can drop it to $145 if you book right now.&rdquo;</p>
-                    <div className="mt-3"><ConfidenceWaveform score={65} /></div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${negotiated ? "bg-[#30a985]/10 text-[#30a985] border-[#30a985]/20" : "bg-yellow-50 text-yellow-700 border-yellow-100"}`}>
-                    {negotiated ? "✓ $145 all-in confirmed" : "Starts at $165"}
-                  </span>
-                  {negotiated && <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-xs font-medium">No-drill first</span>}
-                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">Risk score: 25/100</span>
+                <div className="rounded-2xl bg-white px-5 py-3 text-right shadow-sm">
+                  <p className="text-xs text-gray-500">Fast option</p>
+                  <p className="font-serif text-2xl font-bold">
+                    <span className="text-gray-400 line-through">${mission.negotiation.beforePrice}</span>
+                    <span className="ml-2 text-emerald-600">{mission.negotiation.afterPrice ? `$${mission.negotiation.afterPrice}` : "In progress"}</span>
+                  </p>
                 </div>
               </div>
-            )}
+            </section>
+          )}
 
-          </div>
+          <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-serif text-xl font-semibold">Ordered mission events</h2>
+              <span className="text-xs text-gray-400">Persisted state</span>
+            </div>
+            <div className="mt-5 space-y-4">
+              {mission.callLog.slice().reverse().map((event) => (
+                <div key={event.id} className="flex gap-3 border-b border-black/5 pb-4 last:border-0 last:pb-0">
+                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${event.category === "fallback" ? "bg-pink-400" : event.category === "tool" ? "bg-purple-400" : "bg-emerald-400"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{humanize(event.event)}</p>
+                      {event.toolName && (
+                        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-purple-700">
+                          {humanize(event.toolName)}
+                        </span>
+                      )}
+                      {event.source === "fallback" && (
+                        <span className="rounded-full bg-pink-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pink-700">Replay fallback</span>
+                      )}
+                    </div>
+                    {event.details && <p className="mt-1 text-xs leading-relaxed text-gray-500">{event.details}</p>}
+                  </div>
+                  <time className="shrink-0 text-[10px] text-gray-400">
+                    {new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </time>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </main>
     </div>

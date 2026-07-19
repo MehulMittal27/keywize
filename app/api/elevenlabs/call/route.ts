@@ -1,33 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activateNegotiationFallback, activateReliableFallback } from "@/lib/demoOrchestrator";
+import { initiateSandboxCall } from "@/lib/liveSandbox";
+import { getMission, setMission } from "@/lib/store";
 import type { ElevenLabsCallPayload } from "@/lib/types";
-import { getMission } from "@/lib/store";
-import { CASE_REGISTRY } from "@/lib/cases";
-
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-const AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
-const AGENT_PHONE_NUMBER_ID = process.env.ELEVENLABS_AGENT_PHONE_NUMBER_ID;
 
 /**
- * POST /api/elevenlabs/call
- *
- * Triggers an ElevenLabs outbound call via Twilio.
- * Builds dynamic variables from the mission's job spec so the AI agent
- * knows exactly what to say on the call.
- *
- * Body: { missionId: string, toNumber: string }
+ * Starts one allowlisted live sandbox leg. Destinations and provider
+ * configuration are resolved only by the server-side registry.
  */
 export async function POST(request: NextRequest) {
-  let body: ElevenLabsCallPayload;
-
+  let body: Partial<ElevenLabsCallPayload> & Record<string, unknown>;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.missionId || !body.toNumber) {
+  if ("toNumber" in body || "to_number" in body) {
     return NextResponse.json(
-      { error: "missionId and toNumber are required" },
+      { error: "Destination numbers are never accepted from the browser" },
+      { status: 422 }
+    );
+  }
+  if (!body.missionId || !body.vendorId || !body.role) {
+    return NextResponse.json(
+      { error: "missionId, vendorId, and role are required" },
       { status: 422 }
     );
   }
@@ -36,95 +33,52 @@ export async function POST(request: NextRequest) {
   if (!mission) {
     return NextResponse.json({ error: "Mission not found" }, { status: 404 });
   }
-
-  // Check env config
-  if (!ELEVENLABS_API_KEY || !AGENT_ID || !AGENT_PHONE_NUMBER_ID) {
+  if (mission.mode !== "live_sandbox") {
     return NextResponse.json(
-      {
-        error: "ElevenLabs integration not configured",
-        message:
-          "Set ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, and ELEVENLABS_AGENT_PHONE_NUMBER_ID in your environment.",
-      },
-      { status: 503 }
+      { error: "Outbound calls are available only in live sandbox mode" },
+      { status: 409 }
     );
   }
-
-  const { jobSpec } = mission;
-  const caseDef = CASE_REGISTRY[jobSpec.caseType];
-
-  // Build dynamic variables for the ElevenLabs agent
-  const dynamicVariables: Record<string, string> = {
-    case_type: jobSpec.caseType,
-    case_label: caseDef?.label ?? jobSpec.caseType,
-    urgency: jobSpec.urgency,
-    location: `${jobSpec.locationCity}, ${jobSpec.locationZip}`,
-    door_type: jobSpec.doorType,
-    lock_type: jobSpec.lockType,
-    ideal_price: String(jobSpec.idealPrice),
-    max_price: String(jobSpec.maxPrice),
-    budget_flexibility: jobSpec.budgetFlexibility,
-    need_rekey: String(jobSpec.needRekey),
-    new_keys_needed: String(jobSpec.newKeysNeeded),
-    key_stolen: String(jobSpec.keyStolen),
-    quote_line_items: (caseDef?.quoteLineItems ?? []).join(", "),
-    negotiation_goals: (caseDef?.negotiationGoals ?? []).join("; "),
-    vendor_questions: (caseDef?.vendorQuestions ?? []).join("; "),
-    red_flags_to_watch: (caseDef?.redFlags ?? []).join("; "),
-  };
-
-  // Include existing quotes as leverage for negotiation calls
-  if (mission.quotes.length > 0) {
-    const bestQuote = mission.quotes
-      .filter((q) => q.riskLevel !== "High" && q.isTotalAllIn && q.totalEstimate !== null)
-      .sort((a, b) => (a.totalEstimate ?? Infinity) - (b.totalEstimate ?? Infinity))[0];
-
-    if (bestQuote) {
-      dynamicVariables.best_competing_quote = `$${bestQuote.totalEstimate} all-in from ${bestQuote.vendorName}`;
-      dynamicVariables.best_vendor_eta = String(bestQuote.etaMinutes ?? "unknown");
-    }
-  }
-
-  try {
-    const response = await fetch(
-      "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          agent_id: AGENT_ID,
-          agent_phone_number_id: AGENT_PHONE_NUMBER_ID,
-          to_number: body.toNumber,
-          conversation_initiation_client_data: {
-            dynamic_variables: dynamicVariables,
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return NextResponse.json(
-        { error: "ElevenLabs call failed", details: errText },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-
-    return NextResponse.json({
-      call_initiated: true,
-      conversation_id: data.conversation_id ?? null,
-      call_sid: data.call_sid ?? null,
-      mission_id: body.missionId,
-    });
-  } catch (err) {
-    console.error("ElevenLabs call error:", err);
+  if (
+    (body.role === "caller" && mission.status !== "calling_vendors") ||
+    (body.role === "closer" && mission.status !== "negotiating")
+  ) {
     return NextResponse.json(
-      { error: "Failed to initiate call", details: String(err) },
-      { status: 500 }
+      { error: "Call role is not valid for the current mission state" },
+      { status: 409 }
     );
   }
+
+  const call = mission.vendorCalls.find(
+    (candidate) =>
+      candidate.vendorId === body.vendorId && candidate.role === body.role
+  );
+  if (!call) {
+    return NextResponse.json(
+      { error: "Vendor is not in the controlled sandbox registry for this mission" },
+      { status: 404 }
+    );
+  }
+
+  const result = await initiateSandboxCall(mission, call);
+  if (!result.ok) {
+    if (body.role === "closer") {
+      activateNegotiationFallback(mission, result.reason);
+    } else {
+      activateReliableFallback(mission, result.reason);
+    }
+    setMission(mission);
+    return NextResponse.json(
+      { callInitiated: false, fallbackStarted: true, message: result.reason },
+      { status: 200 }
+    );
+  }
+
+  setMission(mission);
+  return NextResponse.json({
+    callInitiated: true,
+    missionId: mission.id,
+    vendorId: call.vendorId,
+    role: call.role,
+  });
 }

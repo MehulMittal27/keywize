@@ -9,13 +9,17 @@ import { DEMO_MISSION, DEMO_MISSION_ID } from "./mockData";
 
 export { DEMO_MISSION_ID };
 
-// Module-level map — persists across requests in the same Node.js process.
-// Next.js dev mode hot-reloads may reset this; the demo mission is re-seeded
-// on every import so the demo always works.
-const _missions: Map<string, Mission> = new Map();
+// Keep one process-wide map across Next.js route and server-component bundles.
+// Production live workflows still need a durable database and queue.
+const storeGlobal = globalThis as typeof globalThis & {
+  __keywizeMissionStore?: Map<string, Mission>;
+};
+const _missions = storeGlobal.__keywizeMissionStore ?? new Map<string, Mission>();
+storeGlobal.__keywizeMissionStore = _missions;
 
-// Seed the demo mission
-_missions.set(DEMO_MISSION_ID, structuredClone(DEMO_MISSION));
+if (!_missions.has(DEMO_MISSION_ID)) {
+  _missions.set(DEMO_MISSION_ID, structuredClone(DEMO_MISSION));
+}
 
 export function getMission(id: string): Mission | undefined {
   return _missions.get(id);

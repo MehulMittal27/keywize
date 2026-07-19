@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { getMission, setMission } from "@/lib/store";
+import { addMissionEvent } from "@/lib/missionEvents";
 
 /**
  * POST /api/missions/[id]/recording
@@ -78,10 +79,10 @@ export async function POST(
 
   mission.recordingUrl = recordingUrl;
   mission.status = "session_2_complete";
-  mission.callLog.push({
-    timestamp: new Date().toISOString(),
+  addMissionEvent(mission, {
     event: "recording_uploaded",
-    details: `Session 2 call recording saved: ${recordingUrl}`,
+    details: "Session 2 call recording saved.",
+    category: "status",
   });
 
   setMission(mission);
