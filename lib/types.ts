@@ -41,8 +41,9 @@ export type MissionStatus =
   | "intake_complete"
   | "calling_vendors"
   | "quotes_collected"
+  | "awaiting_vendor_selection"
   | "negotiating"
-  | "complete";
+  | "session_2_complete";
 
 // ─── Job Spec ─────────────────────────────────────────────────────────────────
 
@@ -140,6 +141,10 @@ export type Mission = {
   status: MissionStatus;
   callLog: CallLogEntry[];
   recommendation: RankingResult | null;
+  /** Set after user picks a vendor from the ranked list (between session 1 and 2). */
+  selectedVendorId?: string;
+  /** Set after session 2 succeeds and the user uploads the call recording. */
+  recordingUrl?: string;
 };
 
 // ─── Case Definition ──────────────────────────────────────────────────────────

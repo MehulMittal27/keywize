@@ -42,10 +42,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Find the target vendor: SpeedKey Express first, then the highest over-budget quote
+  // Find the target vendor: use the user's selection first, then fall back to the
+  // highest over-budget quote (for backward compat with the demo reset flow).
   const maxPrice = mission.jobSpec.maxPrice;
   const target =
-    mission.quotes.find((q) => q.vendorName === "SpeedKey Express") ??
+    (mission.selectedVendorId
+      ? mission.quotes.find((q) => q.id === mission.selectedVendorId)
+      : undefined) ??
     mission.quotes
       .filter((q) => q.totalEstimate !== null && q.totalEstimate > maxPrice)
       .sort((a, b) => (b.totalEstimate ?? 0) - (a.totalEstimate ?? 0))[0];
@@ -95,7 +98,7 @@ export async function POST(request: NextRequest) {
 
   // Re-rank all quotes
   mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-  mission.status = "complete";
+  mission.status = "negotiating";
 
   setMission(mission);
 

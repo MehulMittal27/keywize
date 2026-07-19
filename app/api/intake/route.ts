@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   // If the mission has pre-existing quotes (e.g. seeded), rank them
   if (mission.quotes.length >= 3) {
     mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-    mission.status = "complete";
+    mission.status = "awaiting_vendor_selection";
     setMission(mission);
   }
 
