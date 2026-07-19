@@ -308,6 +308,15 @@ function buildInlineRequestBodySchema(toolName) {
   };
 }
 
+function buildEmptyInlineObjectSchema(description) {
+  return {
+    type: "object",
+    description,
+    properties: {},
+    required: [],
+  };
+}
+
 function buildWebhookToolConfig(toolName, webhookUrl) {
   return {
     type: "webhook",
@@ -316,8 +325,8 @@ function buildWebhookToolConfig(toolName, webhookUrl) {
     api_schema: {
       url: webhookUrl,
       method: "POST",
-      path_params_schema: {},
-      query_params_schema: {},
+      path_params_schema: buildEmptyInlineObjectSchema("No path parameters are used by this webhook tool."),
+      query_params_schema: buildEmptyInlineObjectSchema("No query parameters are used by this webhook tool."),
       request_headers: {
         "Content-Type": "application/json",
       },
@@ -387,13 +396,8 @@ function assertWebhookApiSchemaMatchesInlineCreateShape(apiSchema, pathLabel) {
     throw new Error(`ElevenLabs tool ${pathLabel} must be an object.`);
   }
 
-  if (!apiSchema.path_params_schema || Object.keys(apiSchema.path_params_schema).length !== 0) {
-    throw new Error(`ElevenLabs tool ${pathLabel}.path_params_schema must be an empty object.`);
-  }
-
-  if (!apiSchema.query_params_schema || Array.isArray(apiSchema.query_params_schema) || Object.keys(apiSchema.query_params_schema).length !== 0) {
-    throw new Error(`ElevenLabs tool ${pathLabel}.query_params_schema must be an empty object for inline agent creation.`);
-  }
+  assertEmptyInlineObjectSchema(apiSchema.path_params_schema, `${pathLabel}.path_params_schema`);
+  assertEmptyInlineObjectSchema(apiSchema.query_params_schema, `${pathLabel}.query_params_schema`);
 
   if (!apiSchema.request_headers || Array.isArray(apiSchema.request_headers) || apiSchema.request_headers["Content-Type"] !== "application/json") {
     throw new Error(`ElevenLabs tool ${pathLabel}.request_headers must be an object with Content-Type application/json for inline agent creation.`);
@@ -402,6 +406,18 @@ function assertWebhookApiSchemaMatchesInlineCreateShape(apiSchema, pathLabel) {
   if (apiSchema.content_type !== "application/json") {
     throw new Error(`ElevenLabs tool ${pathLabel}.content_type must be application/json.`);
   }
+}
+
+function assertEmptyInlineObjectSchema(schema, pathLabel) {
+  if (!schema || schema.type !== "object" || Array.isArray(schema.properties) || typeof schema.properties !== "object") {
+    throw new Error(`ElevenLabs tool ${pathLabel} must be an object schema with a properties dictionary.`);
+  }
+
+  if (Object.keys(schema.properties).length !== 0) {
+    throw new Error(`ElevenLabs tool ${pathLabel}.properties must be empty for this Keywize webhook.`);
+  }
+
+  assertRequiredList(schema.required, [], pathLabel);
 }
 
 function assertNoUnsupportedSchemaKeys(value, pathLabel) {
@@ -701,7 +717,9 @@ async function main() {
             const parametersProperty = bodyProperties.parameters;
             const bodyParameterNames = Object.keys(bodyProperties).join(", ");
             const nestedParameterNames = Object.keys(parametersProperty.properties).join(", ");
-            return `${tool.name} [body: ${bodyParameterNames}; parameters.properties: ${nestedParameterNames}]`;
+            const pathParameterNames = Object.keys(tool.api_schema.path_params_schema.properties).join(", ") || "none";
+            const queryParameterNames = Object.keys(tool.api_schema.query_params_schema.properties).join(", ") || "none";
+            return `${tool.name} [path.properties: ${pathParameterNames}; query.properties: ${queryParameterNames}; body: ${bodyParameterNames}; parameters.properties: ${nestedParameterNames}]`;
           })
           .join(", ");
         return `${name}: ${toolDetails}`;
@@ -713,7 +731,7 @@ async function main() {
     console.log("Voice mode sanity check passed: conversation_config.conversation.text_only is false for every agent.");
     console.log("Platform guardrail sanity check passed: focus, prompt injection, and Keywize custom guardrails are configured for every agent.");
     console.log(`TTS model: ${voiceModeConfig.tts.model_id}. Voice ID: ${voiceModeConfig.tts.voice_id ? "configured" : "ElevenLabs default"}.`);
-    console.log("Tool schema sanity check passed: every inline webhook request_body_schema uses dictionary properties and required lists for tool_name, parameters, and nested tool-specific fields.");
+    console.log("Tool schema sanity check passed: every inline webhook path_params_schema, query_params_schema, and request_body_schema uses dictionary properties and required lists.");
     console.log(`Tool split:\n${toolSummary}`);
     if (existingAgentEnvKeys.length > 0) {
       console.log(
