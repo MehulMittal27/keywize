@@ -19,6 +19,7 @@ type VoiceSessionState =
   | "preparing"
   | "connecting"
   | "connected"
+  | "interrupted"
   | "ended"
   | "failed";
 
@@ -116,6 +117,8 @@ function ElevenLabsIntakePanel() {
   const requestRef = useRef<AbortController | null>(null);
   const transcriptIdRef = useRef(0);
   const sessionConnectedRef = useRef(false);
+  const sessionEstablishedRef = useRef(false);
+  const transcriptActivityRef = useRef(false);
   const isEndingRef = useRef(false);
   const isNavigatingRef = useRef(false);
 
@@ -143,6 +146,8 @@ function ElevenLabsIntakePanel() {
       // leave a failed-session banner over an active call.
       if (!isEndingRef.current) {
         sessionConnectedRef.current = true;
+        sessionEstablishedRef.current = true;
+        transcriptActivityRef.current = true;
         setLocalError("");
         setSessionState("connected");
       }
@@ -180,6 +185,7 @@ function ElevenLabsIntakePanel() {
       }
 
       sessionConnectedRef.current = true;
+      sessionEstablishedRef.current = true;
       setLocalError("");
       setSessionState("connected");
     },
@@ -192,6 +198,7 @@ function ElevenLabsIntakePanel() {
         setSessionState("connecting");
       } else if (status === "connected") {
         sessionConnectedRef.current = true;
+        sessionEstablishedRef.current = true;
         setLocalError("");
         setSessionState("connected");
       }
@@ -202,7 +209,11 @@ function ElevenLabsIntakePanel() {
       // The SDK also emits onError for recoverable runtime issues. A failure is
       // user-facing only when the call never connected, or when onDisconnect
       // later confirms that an active session ended because of an error.
-      if (isEndingRef.current || sessionConnectedRef.current) {
+      if (
+        isEndingRef.current ||
+        sessionConnectedRef.current ||
+        sessionEstablishedRef.current
+      ) {
         return;
       }
 
@@ -211,20 +222,37 @@ function ElevenLabsIntakePanel() {
     },
     onDisconnect: (details) => {
       const endedByUser = isEndingRef.current || details.reason === "user";
+      const wasEstablished = sessionEstablishedRef.current;
+      const hadTranscriptActivity = transcriptActivityRef.current;
       sessionConnectedRef.current = false;
       isEndingRef.current = false;
 
       if (endedByUser) {
+        setLocalError("");
         setSessionState("ended");
         return;
       }
 
       if (details.reason === "error") {
+        if (wasEstablished) {
+          setLocalError("");
+          setSessionState("interrupted");
+          if (!isNavigatingRef.current) {
+            setNotice(
+              hadTranscriptActivity
+                ? "The voice call was interrupted. Your latest conversation is still here. Try again or continue below."
+                : "The voice call was interrupted. Try again or continue below."
+            );
+          }
+          return;
+        }
+
         setSessionState("failed");
         setLocalError(friendlySessionError(details.message));
         return;
       }
 
+      setLocalError("");
       setSessionState("ended");
       if (!isNavigatingRef.current) {
         setNotice("Call complete. If your mission did not open, you can finish below.");
@@ -241,6 +269,8 @@ function ElevenLabsIntakePanel() {
     setNotice("");
     setTranscript([]);
     sessionConnectedRef.current = false;
+    sessionEstablishedRef.current = false;
+    transcriptActivityRef.current = false;
     isEndingRef.current = false;
     isNavigatingRef.current = false;
 
@@ -338,6 +368,10 @@ function ElevenLabsIntakePanel() {
         ? "Keywize is speaking"
         : "Your microphone is on";
     statusTone = "bg-[#30a985] animate-pulse";
+  } else if (sessionState === "interrupted") {
+    statusLabel = "Call interrupted";
+    statusDetail = "Your conversation is still here";
+    statusTone = "bg-amber-400";
   } else if (sessionState === "ended") {
     statusLabel = "Call ended";
     statusDetail = "Start again or continue with the form";
@@ -347,7 +381,7 @@ function ElevenLabsIntakePanel() {
     statusTone = "bg-pink-500";
   }
 
-  let prompt = "Tell me what happened. I will guide you one question at a time.";
+  let prompt = "What happened with your lock?";
 
   if (currentQuestion) {
     prompt = currentQuestion;
@@ -356,8 +390,10 @@ function ElevenLabsIntakePanel() {
   } else if (sessionState === "connected") {
     prompt =
       conversation.mode === "speaking"
-        ? "I am here to help. Let us start with what happened."
+        ? "Keywize is speaking."
         : "Go ahead. What happened with your lock?";
+  } else if (sessionState === "interrupted") {
+    prompt = "Your call was interrupted. Start again when you are ready.";
   } else if (sessionState === "ended") {
     prompt = "Your call has ended. Start again if you would like to keep talking.";
   } else if (sessionState === "failed") {
