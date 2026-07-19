@@ -201,4 +201,11 @@ export const DEMO_MISSION: Mission = {
   recommendation: null,
 };
 
+export function getDemoQuotesForMission(missionId: string): Quote[] {
+  return structuredClone(mockQuotes).map((quote) => ({
+    ...quote,
+    missionId,
+  }));
+}
+
 export const mockMission = DEMO_MISSION;

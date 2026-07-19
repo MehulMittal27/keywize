@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import type { IntakePayload, Mission, JobSpec } from "@/lib/types";
 import { setMission } from "@/lib/store";
 import { rankQuotes } from "@/lib/ranking";
+import { getDemoQuotesForMission } from "@/lib/mockData";
 
 // Required fields with human-readable prompts
 const REQUIRED_FIELDS: (keyof IntakePayload)[] = [
@@ -93,29 +94,45 @@ export async function POST(request: NextRequest) {
     createdAt: new Date().toISOString(),
   };
 
+  const missionId = uuid();
+  const demoQuotes = getDemoQuotesForMission(missionId);
+
   const mission: Mission = {
-    id: uuid(),
+    id: missionId,
     jobSpec,
-    quotes: [],
-    status: "intake_complete",
+    quotes: demoQuotes,
+    status: "quotes_collected",
     callLog: [
       {
         timestamp: new Date().toISOString(),
         event: "intake_complete",
         details: `Case: ${jobSpec.caseType}. Max budget: $${jobSpec.maxPrice}.`,
       },
+      {
+        timestamp: new Date().toISOString(),
+        event: "demo_calls_queued",
+        details: "Demo mode queued three mock locksmith calls.",
+      },
+      {
+        timestamp: new Date().toISOString(),
+        event: "quote_received",
+        details: "Speedy Lock & Key: starts at $39. High risk flagged.",
+      },
+      {
+        timestamp: new Date().toISOString(),
+        event: "quote_received",
+        details: "Neighborhood Locksmith: $130 all-in. Low risk.",
+      },
+      {
+        timestamp: new Date().toISOString(),
+        event: "quote_received",
+        details: "Premium Secure: $165 initial offer. Ready to negotiate.",
+      },
     ],
-    recommendation: null,
+    recommendation: rankQuotes(demoQuotes, jobSpec),
   };
 
   setMission(mission);
-
-  // If the mission has pre-existing quotes (e.g. seeded), rank them
-  if (mission.quotes.length >= 3) {
-    mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-    mission.status = "awaiting_vendor_selection";
-    setMission(mission);
-  }
 
   return NextResponse.json(mission, { status: 201 });
 }

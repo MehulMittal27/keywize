@@ -1,14 +1,17 @@
 import { mockQuotes } from "../../../lib/mockData";
+import { getMission } from "../../../lib/store";
 import { VoiceTrustBadge } from "../../../components/VoiceTrustBadge";
 import { NegotiationPlaybook } from "../../../components/NegotiationPlaybook";
 import Link from "next/link";
 
-export default function ReportPage() {
-  // Sort quotes manually to mimic ranking:
-  // 1st: Low risk, under budget ($130) -> Vendor B
-  // 2nd: Negotiated premium ($145) -> Vendor C
-  // 3rd: High risk -> Vendor A
-  const ranked = [mockQuotes[1], mockQuotes[2], mockQuotes[0]];
+export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const quotes = getMission(id)?.quotes ?? mockQuotes;
+  const premium = quotes.find((quote) => quote.vendorName === "Premium Secure") ?? mockQuotes[2];
+  const neighborhood = quotes.find((quote) => quote.vendorName === "Neighborhood Locksmith") ?? mockQuotes[1];
+  const speedy = quotes.find((quote) => quote.vendorName === "Speedy Lock & Key") ?? mockQuotes[0];
+  const finalPrice = premium.priceOrTermsChanged ? premium.totalEstimate ?? 145 : 145;
+  const savings = Math.max(0, 165 - finalPrice);
 
   return (
     <div className="min-h-screen bg-[#fbfaf7] text-[#111111] font-sans pb-24">
@@ -50,13 +53,13 @@ export default function ReportPage() {
                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                  <div>
                    <h2 className="text-2xl font-bold flex items-center gap-3">
-                     {ranked[1].vendorName} <span className="text-xl">🏆</span>
+                     {premium.vendorName} <span className="text-xl">🏆</span>
                    </h2>
                    <p className="text-gray-500 font-medium mt-1">Best blend of speed and verified pricing.</p>
                  </div>
                  <div className="text-left sm:text-right">
-                   <div className="text-4xl font-serif font-bold text-[#30a985]">$145</div>
-                   <div className="text-sm font-semibold uppercase tracking-wide mt-1">15 Min ETA</div>
+                   <div className="text-4xl font-serif font-bold text-[#30a985]">${finalPrice}</div>
+                   <div className="text-sm font-semibold uppercase tracking-wide mt-1">{premium.etaMinutes ?? 15} Min ETA</div>
                  </div>
                </div>
 
@@ -75,19 +78,19 @@ export default function ReportPage() {
                  </div>
                  <div>
                    <div className="text-xs text-gray-500 font-medium">Warranty</div>
-                   <div className="font-semibold">1 year</div>
+                   <div className="font-semibold">{premium.warranty ?? "1 year"}</div>
                  </div>
                </div>
 
                {/* Success-Fee Pricing Block */}
                <div className="bg-[#111111] text-white p-5 rounded-2xl mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
                  <div>
-                   <h3 className="font-bold text-lg text-[#30a985]">We saved you $20.00</h3>
-                   <p className="text-sm text-gray-400">Our AI negotiated the price down from $165 to $145.</p>
+                   <h3 className="font-bold text-lg text-[#30a985]">We saved you ${savings}.00</h3>
+                   <p className="text-sm text-gray-400">Our AI negotiated the price down from $165 to ${finalPrice}.</p>
                  </div>
                  <div className="text-right">
                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Keywize 20% Success Fee</p>
-                   <p className="font-bold text-2xl font-serif">$4.00</p>
+                   <p className="font-bold text-2xl font-serif">${(savings * 0.2).toFixed(2)}</p>
                  </div>
                </div>
 
@@ -98,12 +101,12 @@ export default function ReportPage() {
                  </h3>
                  <div className="bg-[#fbfaf7] p-5 rounded-2xl border border-black/5 space-y-3">
                    <div className="text-sm"><span className="font-bold text-[#111111]">Keywize:</span> What is the total price?</div>
-                   <div className="text-sm"><span className="font-bold text-[#30a985]">Premium Secure:</span> Usually it&apos;s $165 for emergency extraction.</div>
-                   <div className="text-sm"><span className="font-bold text-[#111111]">Keywize:</span> Can you do $145? I have another quote for $130 but you are faster.</div>
+                   <div className="text-sm"><span className="font-bold text-[#30a985]">Premium Secure:</span> {premium.transcriptEvidence[0] ?? "Usually it is $165 for emergency extraction."}</div>
+                   <div className="text-sm"><span className="font-bold text-[#111111]">Keywize:</span> Can you do ${finalPrice}? I have another quote for $130 but you are faster.</div>
                    <div className="text-sm flex items-start gap-3">
                      <span className="font-bold text-[#30a985] whitespace-nowrap">Premium Secure:</span>
                      <div>
-                       <span className="bg-yellow-100 px-1 rounded">Um, we can drop it to $145 if you book right now.</span>
+                       <span className="bg-yellow-100 px-1 rounded">{premium.transcriptEvidence.find((line) => line.includes("$145")) ?? "Um, we can drop it to $145 if you book right now."}</span>
                        <div className="mt-2"><VoiceTrustBadge level="Medium" /></div>
                      </div>
                    </div>
@@ -135,10 +138,10 @@ export default function ReportPage() {
             <div className="bg-white p-5 rounded-2xl border border-black/5 shadow-sm opacity-80 hover:opacity-100 transition-opacity cursor-pointer">
                <div className="flex justify-between items-start mb-2">
                  <h4 className="font-bold">Neighborhood Locksmith</h4>
-                 <span className="font-bold">$130</span>
+                 <span className="font-bold">${neighborhood.totalEstimate ?? 130}</span>
                </div>
-               <p className="text-sm text-gray-500 mb-3">30 min ETA • No-drill first</p>
-               <div className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded inline-block font-medium">Low Risk (Score: 10/100)</div>
+               <p className="text-sm text-gray-500 mb-3">{neighborhood.etaMinutes ?? 30} min ETA • No-drill first</p>
+               <div className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded inline-block font-medium">{neighborhood.riskLevel} Risk (Score: {neighborhood.riskScore}/100)</div>
             </div>
 
             {/* Vendor A - Scam */}
@@ -148,9 +151,9 @@ export default function ReportPage() {
                  <span className="font-bold text-gray-400">?</span>
                </div>
                <p className="text-sm text-gray-500 mb-3">20 min ETA • Refused total</p>
-               <div className="text-xs bg-pink-50 text-pink-700 px-2 py-1 rounded inline-block font-medium mb-3">High Risk (Score: 85/100)</div>
+               <div className="text-xs bg-pink-50 text-pink-700 px-2 py-1 rounded inline-block font-medium mb-3">{speedy.riskLevel} Risk (Score: {speedy.riskScore}/100)</div>
                <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-                 &ldquo;It starts at $39, the tech will tell you the rest.&rdquo;
+                 &ldquo;{speedy.transcriptEvidence[0] ?? "It starts at $39, the tech will tell you the rest."}&rdquo;
                </div>
             </div>
           </div>
