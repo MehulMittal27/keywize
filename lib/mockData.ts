@@ -1,182 +1,155 @@
 import type { Mission, Quote, VoiceTrustSignal } from "./types";
 
-export const DEMO_MISSION_ID = "demo-mission-001";
+export const DEMO_MISSION_ID = "mission-001";
 
-// ─── VoiceTrust signals ───────────────────────────────────────────────────────
-
-const vtSignalA: VoiceTrustSignal = {
-  id: "vt-a-001",
-  quoteId: "quote-vendor-a",
-  questionType: "hidden_fees",
-  vendorText:
-    "Uh, the technician will confirm the final price on arrival. We start at $39 for the call.",
-  pauseMs: 2100,
-  fillerWords: ["uh"],
-  evasivePhrases: ["technician will confirm", "starts at"],
-  confidenceScore: 18,
-  trustLevel: "Low",
-  signals: [
-    "Long pause (2100ms) before answering hidden-fee question",
-    'Filler word "uh" detected',
-    'Evasive phrase detected: "technician will confirm"',
-    'Evasive phrase detected: "starts at"',
+const mockVoiceTrustSignals: Record<string, VoiceTrustSignal[]> = {
+  vendorA: [
+    {
+      id: "vt-a-1",
+      quoteId: "quote-a",
+      questionType: "hidden_fees",
+      vendorText: "Uh... well, it depends on the lock.",
+      pauseMs: 1800,
+      fillerWords: ["Uh", "well"],
+      evasivePhrases: ["it depends"],
+      confidenceScore: 35,
+      trustLevel: "Low",
+      signals: ["Long pause (1.8s)", "Evasive language", "Filler words"],
+      recommendedPush: "Force a firm cap on labor before dispatch.",
+    },
   ],
-  recommendedPush:
-    "You paused there, so I want to make sure we are not missing anything. Is there any dispatch, drilling, after-hours, or parts fee not included in the total?",
+  vendorB: [
+    {
+      id: "vt-b-1",
+      quoteId: "quote-b",
+      questionType: "price",
+      vendorText: "It is $130 total, including dispatch.",
+      pauseMs: 200,
+      fillerWords: [],
+      evasivePhrases: [],
+      confidenceScore: 95,
+      trustLevel: "High",
+      signals: ["Quick response", "Direct language"],
+      recommendedPush: "Confirm no-drill policy.",
+    },
+  ],
+  vendorC: [
+    {
+      id: "vt-c-1",
+      quoteId: "quote-c",
+      questionType: "hidden_fees",
+      vendorText: "Um, we can drop it to $145 if you book right now.",
+      pauseMs: 1200,
+      fillerWords: ["Um"],
+      evasivePhrases: [],
+      confidenceScore: 65,
+      trustLevel: "Medium",
+      signals: ["Moderate pause", "Negotiation detected"],
+      recommendedPush: "Lock in the $145 all-in rate immediately.",
+    },
+  ],
 };
 
-const vtSignalB: VoiceTrustSignal = {
-  id: "vt-b-001",
-  quoteId: "quote-vendor-b",
-  questionType: "price",
-  vendorText:
-    "Yes, $130 is the total out-the-door. Dispatch, labor, and key extraction are all included.",
-  pauseMs: 300,
-  fillerWords: [],
-  evasivePhrases: [],
-  confidenceScore: 92,
-  trustLevel: "High",
-  signals: [],
-  recommendedPush: "Response looks clear and direct. No further push needed.",
-};
-
-const vtSignalC: VoiceTrustSignal = {
-  id: "vt-c-001",
-  quoteId: "quote-vendor-c",
-  questionType: "hidden_fees",
-  vendorText:
-    "Well, the $165 covers the main work. There may be a small parts charge depending on the lock.",
-  pauseMs: 950,
-  fillerWords: ["well"],
-  evasivePhrases: ["depends on"],
-  confidenceScore: 58,
-  trustLevel: "Medium",
-  signals: [
-    "Noticeable pause (950ms) before answering price question",
-    'Filler word "well" detected',
-    'Evasive phrase detected: "depends on"',
-  ],
-  recommendedPush:
-    "Let's confirm that total one more time — is that truly all-in with no additional fees on arrival?",
-};
-
-// ─── Quotes ───────────────────────────────────────────────────────────────────
-
-const quoteA: Quote = {
-  id: "quote-vendor-a",
-  missionId: DEMO_MISSION_ID,
-  vendorName: "QuickLock Pro",
-  phone: "+14155550101",
-  etaMinutes: 20,
-  dispatchFee: null,         // refused to confirm
-  laborFee: null,            // refused itemized
-  partsFee: null,
-  afterHoursFee: null,
-  taxesAndOther: null,
-  totalEstimate: null,       // only quoted "starts at $39"
-  isTotalAllIn: false,
-  drillingPolicy: "Technician will assess on arrival and drill if necessary.",
-  idRequired: false,
-  oldKeyDisabled: null,
-  keysIncluded: null,
-  warranty: null,
-  quoteConfidence: "starts_at",
-  redFlags: [
-    "Only said 'starts at $39' — refused all-in total",
-    "No itemized pricing provided",
-    "Drilling mentioned without non-destructive first policy",
-    "No ID or proof of residence required",
-  ],
-  riskScore: 95,
-  riskLevel: "High",
-  transcriptEvidence: [
-    "\"We start at $39 for the service call.\"",
-    "\"The technician will confirm the final price on arrival.\"",
-    "\"We may need to drill depending on the lock.\"",
-  ],
-  transcript:
-    "Agent: Can you give the total out-the-door estimate?\nVendor: Uh, the technician will confirm the final price on arrival. We start at $39 for the call.\nAgent: Is the dispatch fee included in that total?\nVendor: Uh, it depends on what the technician finds.\nAgent: Will you attempt non-destructive entry before drilling?\nVendor: We may need to drill depending on the lock.",
-  priceOrTermsChanged: false,
-  voiceTrustSignals: [vtSignalA],
-  voiceTrustScore: 18,
-};
-
-const quoteB: Quote = {
-  id: "quote-vendor-b",
-  missionId: DEMO_MISSION_ID,
-  vendorName: "Bay Area Locksmith",
-  phone: "+14155550102",
-  etaMinutes: 30,
-  dispatchFee: 25,
-  laborFee: 85,
-  partsFee: 0,
-  afterHoursFee: 20,
-  taxesAndOther: 0,
-  totalEstimate: 130,
-  isTotalAllIn: true,
-  drillingPolicy: "Non-destructive entry first. Drilling only if lock is physically damaged.",
-  idRequired: true,
-  oldKeyDisabled: null,
-  keysIncluded: 0,
-  warranty: "30 days on labor",
-  quoteConfidence: "firm_before_arrival",
-  redFlags: [],
-  riskScore: 5,
-  riskLevel: "Low",
-  transcriptEvidence: [
-    "\"$130 is the total out-the-door. Dispatch, labor, and key extraction are all included.\"",
-    "\"We always attempt non-destructive entry first.\"",
-    "\"We require a photo ID and proof you live there before we start.\"",
-  ],
-  transcript:
-    "Agent: Can you give the total out-the-door estimate?\nVendor: Yes, $130 is the total out-the-door. Dispatch, labor, and key extraction are all included.\nAgent: Will you attempt non-destructive entry before drilling?\nVendor: We always attempt non-destructive entry first. Drilling only if the lock is physically damaged.\nAgent: Do you require ID?\nVendor: Yes, we require a photo ID and proof you live there before we start.",
-  priceOrTermsChanged: false,
-  voiceTrustSignals: [vtSignalB],
-  voiceTrustScore: 92,
-};
-
-const quoteC: Quote = {
-  id: "quote-vendor-c",
-  missionId: DEMO_MISSION_ID,
-  vendorName: "SpeedKey Express",
-  phone: "+14155550103",
-  etaMinutes: 15,
-  dispatchFee: 30,
-  laborFee: 110,
-  partsFee: 0,
-  afterHoursFee: 25,
-  taxesAndOther: 0,
-  totalEstimate: 165,
-  isTotalAllIn: false,      // uncertain on hidden fees
-  drillingPolicy: "Non-destructive preferred. Drilling only as last resort.",
-  idRequired: true,
-  oldKeyDisabled: null,
-  keysIncluded: 0,
-  warranty: "30 days",
-  quoteConfidence: "firm_before_arrival",
-  redFlags: [
-    "Not fully confirmed all-in — possible parts charge on arrival",
-  ],
-  riskScore: 30,
-  riskLevel: "Medium",
-  transcriptEvidence: [
-    "\"$165 covers the main work. There may be a small parts charge depending on the lock.\"",
-    "\"We can be there in 15 minutes.\"",
-    "\"We try non-destructive first.\"",
-  ],
-  transcript:
-    "Agent: Can you give the total out-the-door estimate?\nVendor: Well, the $165 covers the main work. There may be a small parts charge depending on the lock.\nAgent: Is there an after-hours fee?\nVendor: That's included in the $165.\nAgent: What is your ETA?\nVendor: We can be there in 15 minutes.",
-  priceOrTermsChanged: false,
-  voiceTrustSignals: [vtSignalC],
-  voiceTrustScore: 58,
-};
-
-// ─── Demo Mission (pre-negotiation state) ────────────────────────────────────
+export const mockQuotes: Quote[] = [
+  {
+    id: "quote-a",
+    missionId: DEMO_MISSION_ID,
+    vendorName: "Speedy Lock & Key",
+    phone: "(555) 019-2834",
+    etaMinutes: 20,
+    dispatchFee: 39,
+    laborFee: null,
+    partsFee: null,
+    afterHoursFee: null,
+    taxesAndOther: null,
+    totalEstimate: null,
+    isTotalAllIn: false,
+    drillingPolicy: "Technician decides on site",
+    idRequired: false,
+    oldKeyDisabled: null,
+    keysIncluded: 0,
+    warranty: "None",
+    quoteConfidence: "starts_at",
+    redFlags: ["Refused to give total", "Starts at $39 pricing", "No ID required"],
+    riskScore: 85,
+    riskLevel: "High",
+    transcriptEvidence: ["It starts at $39, the tech will tell you the rest."],
+    transcript:
+      "Keywize: How much will it cost to extract a broken key?\nSpeedy: It starts at $39.\nKeywize: Are there any hidden fees?\nSpeedy: Uh... well, it depends on the lock.",
+    priceOrTermsChanged: false,
+    voiceTrustSignals: mockVoiceTrustSignals.vendorA,
+    voiceTrustScore: 35,
+  },
+  {
+    id: "quote-b",
+    missionId: DEMO_MISSION_ID,
+    vendorName: "Neighborhood Locksmith",
+    phone: "(555) 837-1120",
+    etaMinutes: 30,
+    dispatchFee: 40,
+    laborFee: 90,
+    partsFee: 0,
+    afterHoursFee: 0,
+    taxesAndOther: 0,
+    totalEstimate: 130,
+    isTotalAllIn: true,
+    drillingPolicy: "No-drill guarantee first",
+    idRequired: true,
+    oldKeyDisabled: null,
+    keysIncluded: 0,
+    warranty: "90 days",
+    quoteConfidence: "firm_before_arrival",
+    redFlags: [],
+    riskScore: 10,
+    riskLevel: "Low",
+    transcriptEvidence: [
+      "It is $130 total, including dispatch.",
+      "We always try to pick it first without drilling.",
+    ],
+    transcript:
+      "Keywize: What is the total cost?\nNeighborhood: It is $130 total, including dispatch.\nKeywize: Do you drill the lock?\nNeighborhood: We always try to pick it first without drilling.",
+    priceOrTermsChanged: false,
+    voiceTrustSignals: mockVoiceTrustSignals.vendorB,
+    voiceTrustScore: 95,
+  },
+  {
+    id: "quote-c",
+    missionId: DEMO_MISSION_ID,
+    vendorName: "Premium Secure",
+    phone: "(555) 991-4455",
+    etaMinutes: 15,
+    dispatchFee: 45,
+    laborFee: 120,
+    partsFee: 0,
+    afterHoursFee: 0,
+    taxesAndOther: 0,
+    totalEstimate: 165,
+    isTotalAllIn: true,
+    drillingPolicy: "Will pick first",
+    idRequired: true,
+    oldKeyDisabled: null,
+    keysIncluded: 0,
+    warranty: "1 year",
+    quoteConfidence: "firm_before_arrival",
+    redFlags: ["Initial quote over budget ($150)"],
+    riskScore: 25,
+    riskLevel: "Medium",
+    transcriptEvidence: [
+      "Usually it is $165 for emergency extraction.",
+      "Um, we can drop it to $145 if you book right now.",
+    ],
+    transcript:
+      "Keywize: What is the total price?\nPremium: Usually it is $165 for emergency extraction.\nKeywize: Can you do $145? I have another quote for $130 but you are faster.\nPremium: Um, we can drop it to $145 if you book right now.",
+    priceOrTermsChanged: false,
+    voiceTrustSignals: mockVoiceTrustSignals.vendorC,
+    voiceTrustScore: 65,
+  },
+];
 
 export const DEMO_MISSION: Mission = {
   id: DEMO_MISSION_ID,
   jobSpec: {
-    id: "spec-001",
+    id: "job-001",
     caseType: "broken_key_inside_lock",
     urgency: "locked_out_now",
     propertyType: "apartment",
@@ -186,17 +159,17 @@ export const DEMO_MISSION: Mission = {
     keyStolen: false,
     brokenKeyVisible: true,
     needRekey: false,
-    newKeysNeeded: 1,
+    newKeysNeeded: 0,
     idealPrice: 100,
     maxPrice: 150,
     budgetFlexibility: "strict",
     approvalRequiredAboveBudget: true,
     authorizationConfirmed: true,
     locationCity: "San Francisco",
-    locationZip: "94103",
+    locationZip: "94109",
     createdAt: new Date().toISOString(),
   },
-  quotes: [quoteA, quoteB, quoteC],
+  quotes: mockQuotes,
   status: "quotes_collected",
   callLog: [
     {
@@ -207,33 +180,25 @@ export const DEMO_MISSION: Mission = {
     {
       timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       event: "calling_vendor_a",
-      details: "Calling QuickLock Pro…",
+      details: "Calling Speedy Lock & Key.",
     },
     {
-      timestamp: new Date(Date.now() - 4.5 * 60 * 1000).toISOString(),
+      timestamp: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
       event: "quote_received",
-      details: "QuickLock Pro: starts at $39 — HIGH RISK flagged",
-    },
-    {
-      timestamp: new Date(Date.now() - 3.5 * 60 * 1000).toISOString(),
-      event: "calling_vendor_b",
-      details: "Calling Bay Area Locksmith…",
+      details: "Speedy Lock & Key: starts at $39. High risk flagged.",
     },
     {
       timestamp: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
       event: "quote_received",
-      details: "Bay Area Locksmith: $130 all-in — LOW RISK",
+      details: "Neighborhood Locksmith: $130 all-in. Low risk.",
     },
     {
       timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-      event: "calling_vendor_c",
-      details: "Calling SpeedKey Express…",
-    },
-    {
-      timestamp: new Date(Date.now() - 1.5 * 60 * 1000).toISOString(),
       event: "quote_received",
-      details: "SpeedKey Express: $165 initially — MEDIUM RISK",
+      details: "Premium Secure: $165 initially. Medium risk.",
     },
   ],
   recommendation: null,
 };
+
+export const mockMission = DEMO_MISSION;
