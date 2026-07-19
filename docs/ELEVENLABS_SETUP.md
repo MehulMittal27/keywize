@@ -95,10 +95,10 @@ The React UI uses `@elevenlabs/react` with the WebSocket transport. A signed URL
    ```
 
 4. Open `http://localhost:3000/intake?mode=voice`.
-5. Select **Start voice intake**, allow microphone access, and speak with Intake. The card shows connection state plus recent user and agent transcript snippets.
+5. Select **Start voice call**, allow microphone access, and speak with Intake. The call card shows **Connecting**, **Listening**, or **Speaking**, keeps the latest exchange in focus, and places recent conversation notes behind a compact disclosure.
 6. If microphone permission, session setup, or ElevenLabs is unavailable, continue with the full manual form on the same page. `/intake` remains the manual-first route.
 
-Browsers generally allow microphone capture on HTTPS origins or `localhost`. If access was denied, enable the microphone for the site in browser settings, confirm the correct input device, and retry.
+Browsers generally allow microphone capture on HTTPS origins or `localhost`. If access was denied, enable the microphone for the site in browser settings, confirm the correct input device, and retry. The failure alert appears only when startup fails or an active session disconnects with an error. Recoverable SDK errors do not interrupt an otherwise active call.
 
 ### Signed URL boundary
 

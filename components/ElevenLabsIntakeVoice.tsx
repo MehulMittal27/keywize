@@ -14,6 +14,14 @@ type TranscriptSnippet = {
   message: string;
 };
 
+type VoiceSessionState =
+  | "ready"
+  | "preparing"
+  | "connecting"
+  | "connected"
+  | "ended"
+  | "failed";
+
 type AgentToolResponse = Parameters<
   NonNullable<Callbacks["onAgentToolResponse"]>
 >[0];
@@ -55,16 +63,19 @@ function extractMissionId(value: unknown, depth = 0): string | null {
 }
 
 function getResponseError(value: unknown): string {
-  if (!value || typeof value !== "object") {
-    return "Voice intake is unavailable right now. Please use the manual form below.";
+  if (value && typeof value === "object") {
+    const body = value as Record<string, unknown>;
+    const details = [body.error, body.message]
+      .filter((item): item is string => typeof item === "string")
+      .join(" ")
+      .toLowerCase();
+
+    if (details.includes("rate limit") || details.includes("busy")) {
+      return "Voice intake is busy right now. Try again in a moment, or continue below.";
+    }
   }
 
-  const body = value as Record<string, unknown>;
-  const error = typeof body.error === "string" ? body.error : null;
-  const message = typeof body.message === "string" ? body.message : null;
-
-  return [error, message].filter(Boolean).join(" ") ||
-    "Voice intake is unavailable right now. Please use the manual form below.";
+  return "Voice intake is not available right now. You can try again or continue below.";
 }
 
 function friendlySessionError(message?: string): string {
@@ -77,20 +88,35 @@ function friendlySessionError(message?: string): string {
     normalized.includes("not allowed") ||
     normalized.includes("denied")
   ) {
-    return "Microphone access was blocked. Allow microphone access in your browser settings, then try again.";
+    return "Microphone access is off. Allow it for this site, then try again.";
   }
 
-  return "The voice session could not start. Check your microphone and connection, or continue with the manual form.";
+  return "We could not connect the voice call. Try again, or continue below.";
+}
+
+function latestMessage(
+  transcript: TranscriptSnippet[],
+  role: TranscriptSnippet["role"]
+): string | null {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index].role === role) {
+      return transcript[index].message;
+    }
+  }
+
+  return null;
 }
 
 function ElevenLabsIntakePanel() {
   const router = useRouter();
   const [transcript, setTranscript] = useState<TranscriptSnippet[]>([]);
+  const [sessionState, setSessionState] = useState<VoiceSessionState>("ready");
   const [localError, setLocalError] = useState("");
   const [notice, setNotice] = useState("");
-  const [isPreparing, setIsPreparing] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
   const transcriptIdRef = useRef(0);
+  const sessionConnectedRef = useRef(false);
+  const isEndingRef = useRef(false);
   const isNavigatingRef = useRef(false);
 
   const handleMessage = useCallback(
@@ -109,8 +135,17 @@ function ElevenLabsIntakePanel() {
             role: payload.role,
             message,
           },
-        ].slice(-6)
+        ].slice(-8)
       );
+
+      // Transcript activity proves the session is live. Some recoverable SDK
+      // errors use onError without ending the conversation, so they must not
+      // leave a failed-session banner over an active call.
+      if (!isEndingRef.current) {
+        sessionConnectedRef.current = true;
+        setLocalError("");
+        setSessionState("connected");
+      }
     },
     []
   );
@@ -132,27 +167,67 @@ function ElevenLabsIntakePanel() {
       }
 
       isNavigatingRef.current = true;
-      setNotice("Mission created. Opening your mission dashboard...");
+      setNotice("Your mission is ready. Opening it now...");
       router.push(`/mission/${encodeURIComponent(missionId)}`);
     },
     [router]
   );
 
   const conversation = useConversation({
+    onConnect: () => {
+      if (isEndingRef.current) {
+        return;
+      }
+
+      sessionConnectedRef.current = true;
+      setLocalError("");
+      setSessionState("connected");
+    },
+    onStatusChange: ({ status }) => {
+      if (isEndingRef.current) {
+        return;
+      }
+
+      if (status === "connecting" && !sessionConnectedRef.current) {
+        setSessionState("connecting");
+      } else if (status === "connected") {
+        sessionConnectedRef.current = true;
+        setLocalError("");
+        setSessionState("connected");
+      }
+    },
     onMessage: handleMessage,
     onAgentToolResponse: handleAgentToolResponse,
     onError: (message) => {
-      setIsPreparing(false);
+      // The SDK also emits onError for recoverable runtime issues. A failure is
+      // user-facing only when the call never connected, or when onDisconnect
+      // later confirms that an active session ended because of an error.
+      if (isEndingRef.current || sessionConnectedRef.current) {
+        return;
+      }
+
+      setSessionState("failed");
       setLocalError(friendlySessionError(message));
     },
     onDisconnect: (details) => {
-      setIsPreparing(false);
+      const endedByUser = isEndingRef.current || details.reason === "user";
+      sessionConnectedRef.current = false;
+      isEndingRef.current = false;
+
+      if (endedByUser) {
+        setSessionState("ended");
+        return;
+      }
+
       if (details.reason === "error") {
+        setSessionState("failed");
         setLocalError(friendlySessionError(details.message));
-      } else if (details.reason === "agent" && !isNavigatingRef.current) {
-        setNotice(
-          "The voice session ended. If a mission did not open, finish with the manual form below."
-        );
+        return;
+      }
+
+      setSessionState("ended");
+      if (!isNavigatingRef.current) {
+        setNotice("Call complete. If your mission did not open, you can finish below.");
       }
     },
   });
@@ -165,11 +240,14 @@ function ElevenLabsIntakePanel() {
     setLocalError("");
     setNotice("");
     setTranscript([]);
+    sessionConnectedRef.current = false;
+    isEndingRef.current = false;
     isNavigatingRef.current = false;
 
     if (!navigator.mediaDevices?.getUserMedia) {
+      setSessionState("failed");
       setLocalError(
-        "This browser cannot access a microphone. Continue with the manual form below."
+        "This browser cannot use a microphone. You can continue with the form below."
       );
       return;
     }
@@ -177,7 +255,7 @@ function ElevenLabsIntakePanel() {
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
-    setIsPreparing(true);
+    setSessionState("preparing");
 
     try {
       const response = await fetch("/api/elevenlabs/signed-url", {
@@ -197,10 +275,15 @@ function ElevenLabsIntakePanel() {
 
       if (typeof signedUrl !== "string" || !signedUrl) {
         throw new Error(
-          "Voice intake received an invalid session. Please try again or use the manual form."
+          "Voice intake is not available right now. You can try again or continue below."
         );
       }
 
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setSessionState("connecting");
       conversation.startSession({
         signedUrl,
         connectionType: "websocket",
@@ -208,197 +291,306 @@ function ElevenLabsIntakePanel() {
       });
     } catch (error) {
       if (!controller.signal.aborted) {
+        setSessionState("failed");
         setLocalError(
           error instanceof Error
             ? error.message
-            : "Voice intake is unavailable right now. Please use the manual form below."
+            : "Voice intake is not available right now. You can continue below."
         );
       }
     } finally {
       if (requestRef.current === controller) {
         requestRef.current = null;
-        setIsPreparing(false);
       }
     }
   };
 
   const endVoiceIntake = () => {
+    isEndingRef.current = true;
     requestRef.current?.abort();
     requestRef.current = null;
-    setIsPreparing(false);
+    sessionConnectedRef.current = false;
+    setSessionState("ended");
+    setLocalError("");
+    setNotice("Call ended. You can start again or continue below.");
     conversation.endSession();
   };
 
-  const isActive =
-    isPreparing ||
-    conversation.status === "connecting" ||
-    conversation.status === "connected";
-  const displayError =
-    localError ||
-    (conversation.status === "error"
-      ? friendlySessionError(conversation.message)
-      : "");
+  const isActive = ["preparing", "connecting", "connected"].includes(
+    sessionState
+  );
+  const displayError = sessionState === "failed" ? localError : "";
+  const currentQuestion = latestMessage(transcript, "agent");
+  const currentResponse = latestMessage(transcript, "user");
 
-  let statusLabel = "Ready to start";
-  let statusColor = "bg-gray-300";
+  let statusLabel = "Ready";
+  let statusDetail = "Start whenever you feel ready";
+  let statusTone = "bg-gray-300";
 
-  if (displayError) {
+  if (sessionState === "preparing" || sessionState === "connecting") {
+    statusLabel = "Connecting";
+    statusDetail = "Joining your voice call";
+    statusTone = "bg-amber-400 animate-pulse";
+  } else if (sessionState === "connected") {
+    statusLabel = conversation.mode === "speaking" ? "Speaking" : "Listening";
+    statusDetail =
+      conversation.mode === "speaking"
+        ? "Keywize is speaking"
+        : "Your microphone is on";
+    statusTone = "bg-[#30a985] animate-pulse";
+  } else if (sessionState === "ended") {
+    statusLabel = "Call ended";
+    statusDetail = "Start again or continue with the form";
+  } else if (sessionState === "failed") {
     statusLabel = "Voice unavailable";
-    statusColor = "bg-pink-500";
-  } else if (isPreparing) {
-    statusLabel = "Preparing a secure session";
-    statusColor = "bg-amber-400 animate-pulse";
-  } else if (conversation.status === "connecting") {
-    statusLabel = "Connecting to Intake";
-    statusColor = "bg-amber-400 animate-pulse";
-  } else if (conversation.status === "connected") {
-    statusLabel =
-      conversation.mode === "speaking" ? "Intake is speaking" : "Listening to you";
-    statusColor = "bg-[#30a985] animate-pulse";
-  } else if (transcript.length > 0) {
-    statusLabel = "Conversation ended";
+    statusDetail = "The call did not connect";
+    statusTone = "bg-pink-500";
+  }
+
+  let prompt = "Tell me what happened. I will guide you one question at a time.";
+
+  if (currentQuestion) {
+    prompt = currentQuestion;
+  } else if (sessionState === "preparing" || sessionState === "connecting") {
+    prompt = "Just a moment while I set up the call.";
+  } else if (sessionState === "connected") {
+    prompt =
+      conversation.mode === "speaking"
+        ? "I am here to help. Let us start with what happened."
+        : "Go ahead. What happened with your lock?";
+  } else if (sessionState === "ended") {
+    prompt = "Your call has ended. Start again if you would like to keep talking.";
+  } else if (sessionState === "failed") {
+    prompt = "No problem. We can continue another way.";
   }
 
   return (
     <section
       aria-labelledby="voice-intake-heading"
-      className="overflow-hidden rounded-3xl border border-black/5 bg-white shadow-xl shadow-black/5"
+      className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-2xl shadow-black/[0.06]"
     >
-      <div className="bg-[linear-gradient(135deg,#eaf9f3_0%,#fff8fb_100%)] p-6 sm:p-8">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div className="max-w-lg">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#30a985]/20 bg-white/70 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#217c64]">
+      <div className="bg-[linear-gradient(135deg,#e7f8f1_0%,#fff9fb_58%,#f7f2ff_100%)] px-6 pb-7 pt-6 sm:px-10 sm:pb-9 sm:pt-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="max-w-xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#30a985]/20 bg-white/75 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#217c64] shadow-sm">
               <span className="h-2 w-2 rounded-full bg-[#30a985]" />
-              ElevenLabs Intake
+              Voice intake
             </div>
-            <h2 id="voice-intake-heading" className="font-serif text-3xl tracking-tight">
-              Talk through your lockout
+            <h2
+              id="voice-intake-heading"
+              className="font-serif text-3xl tracking-tight sm:text-4xl"
+            >
+              Let&apos;s talk it through
             </h2>
-            <p className="mt-2 text-sm leading-6 text-gray-600">
-              Intake will gather your situation, location, timing, and maximum budget,
-              then confirm authorization before creating a mission.
+            <p className="mt-2 max-w-lg text-sm leading-6 text-gray-600">
+              A calm, guided conversation to understand your lockout and budget.
+              One question at a time.
             </p>
+          </div>
+          <p className="max-w-xs text-xs leading-5 text-gray-500 sm:text-right">
+            You will be asked for microphone access. Headphones can help reduce echo.
+          </p>
+        </div>
+      </div>
+
+      <div className="px-6 py-8 sm:px-10 sm:py-10">
+        <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
+          <div
+            className={`relative flex h-28 w-28 items-center justify-center rounded-full border-8 border-white shadow-xl ring-1 ring-black/5 transition-colors sm:h-32 sm:w-32 ${
+              sessionState === "connected"
+                ? "bg-[#dff6ed]"
+                : sessionState === "failed"
+                  ? "bg-pink-50"
+                  : "bg-[#f4f1ea]"
+            }`}
+            aria-hidden="true"
+          >
+            <div
+              className={`flex h-16 w-16 items-center justify-center gap-1 rounded-full text-white shadow-lg sm:h-[4.5rem] sm:w-[4.5rem] ${
+                sessionState === "failed" ? "bg-pink-500" : "bg-[#111111]"
+              }`}
+            >
+              {[12, 22, 30, 18, 10].map((height, index) => (
+                <span
+                  key={height}
+                  className={`w-1 rounded-full bg-white/90 ${
+                    sessionState === "connected" ? "animate-pulse" : ""
+                  }`}
+                  style={{
+                    height,
+                    animationDelay: `${index * 120}ms`,
+                  }}
+                />
+              ))}
+            </div>
+            {sessionState === "connected" && (
+              <span className="absolute inset-0 -z-10 animate-ping rounded-full bg-[#30a985]/10" />
+            )}
           </div>
 
           <div
-            className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-black/5 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm"
+            className="mt-5 inline-flex items-center gap-2.5 rounded-full border border-black/5 bg-white px-4 py-2 shadow-sm"
             role="status"
             aria-live="polite"
           >
-            <span className={`h-2.5 w-2.5 rounded-full ${statusColor}`} />
-            {statusLabel}
+            <span className={`h-2.5 w-2.5 rounded-full ${statusTone}`} />
+            <span className="font-semibold text-[#111111]">{statusLabel}</span>
+            <span className="hidden text-xs text-gray-500 sm:inline">
+              {statusDetail}
+            </span>
           </div>
-        </div>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          {!isActive ? (
-            <button
-              type="button"
-              onClick={startVoiceIntake}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#111111] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10 transition-all hover:bg-gray-800 active:scale-95"
-            >
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" x2="12" y1="19" y2="22" />
-              </svg>
-              {transcript.length > 0 ? "Start again" : "Start voice intake"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={endVoiceIntake}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#111111] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10 transition-all hover:bg-gray-800 active:scale-95"
-            >
-              <span aria-hidden="true" className="h-3 w-3 rounded-sm bg-white" />
-              End voice intake
-            </button>
-          )}
-          <a
-            href="#manual-intake"
-            className="inline-flex min-h-12 items-center justify-center rounded-full border border-black/10 bg-white px-6 py-3 text-sm font-semibold text-[#111111] transition-colors hover:bg-gray-50"
+          <div
+            className="mt-6 w-full rounded-3xl border border-black/[0.06] bg-[#fbfaf7] px-5 py-5 text-left sm:px-7 sm:py-6"
+            aria-live="polite"
           >
-            Use manual intake
-          </a>
-        </div>
-      </div>
-
-      <div className="grid gap-6 p-6 sm:p-8 md:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4 text-sm leading-6 text-amber-950">
-            <p className="font-semibold">Before you begin</p>
-            <p className="mt-1">
-              Your browser will ask for microphone access. Allow it for this site and
-              check that the correct microphone is selected. Headphones can reduce echo.
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#217c64]">
+              {currentQuestion ? "Keywize asks" : "Your voice guide"}
             </p>
-          </div>
-          <div className="rounded-2xl border border-pink-100 bg-pink-50/70 p-4 text-sm leading-6 text-gray-700">
-            <p className="font-semibold text-pink-800">Authorization is required</p>
-            <p className="mt-1">
-              Only request service for a property you are authorized to enter. Have a
-              government-issued ID and proof of residence ready for the locksmith.
+            <p className="mt-2 font-serif text-xl leading-7 tracking-tight text-[#111111] sm:text-2xl sm:leading-8">
+              {prompt}
             </p>
+            {currentResponse && (
+              <div className="mt-4 border-t border-black/[0.06] pt-4 text-sm leading-6 text-gray-600">
+                <span className="mr-2 font-semibold text-gray-900">You said</span>
+                {currentResponse}
+              </div>
+            )}
           </div>
-        </div>
 
-        <div className="min-h-52 rounded-2xl border border-gray-100 bg-[#fbfaf7] p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Live transcript</h3>
-            <span className="text-xs text-gray-600">Latest snippets only</span>
-          </div>
-
-          {transcript.length > 0 ? (
-            <ol className="space-y-3" aria-live="polite">
-              {transcript.map((item) => (
-                <li
-                  key={item.id}
-                  className={`rounded-2xl px-4 py-3 text-sm leading-5 ${
-                    item.role === "user"
-                      ? "ml-6 bg-[#111111] text-white"
-                      : "mr-6 border border-black/5 bg-white text-gray-700"
-                  }`}
+          <div className="mt-6 flex w-full flex-col items-center justify-center gap-3 sm:flex-row">
+            {!isActive ? (
+              <button
+                type="button"
+                onClick={startVoiceIntake}
+                className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-[#111111] px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-black/15 transition-all hover:bg-gray-800 active:scale-95 sm:w-auto"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="19"
+                  height="19"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <span
-                    className={`mb-1 block text-[10px] font-bold uppercase tracking-wider ${
-                      item.role === "user" ? "text-white/60" : "text-[#30a985]"
-                    }`}
-                  >
-                    {item.role === "user" ? "You" : "Keywize Intake"}
-                  </span>
-                  {item.message}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div className="flex min-h-36 items-center justify-center rounded-xl border border-dashed border-gray-200 px-6 text-center text-sm leading-6 text-gray-600">
-              User and Intake transcript snippets will appear here after the session starts.
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+                {sessionState === "ready" ? "Start voice call" : "Try voice again"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={endVoiceIntake}
+                className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-[#d83c5b] px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-pink-900/15 transition-all hover:bg-[#c93250] active:scale-95 sm:w-auto"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="19"
+                  height="19"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.63a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.85.29 1.73.5 2.63.62A2 2 0 0 1 22 16.92Z" />
+                  <path d="m8 2 12 12" />
+                </svg>
+                End call
+              </button>
+            )}
+            <a
+              href="#manual-intake"
+              className="inline-flex min-h-14 w-full items-center justify-center rounded-full border border-black/10 bg-white px-7 py-3 text-sm font-semibold text-[#111111] transition-colors hover:bg-gray-50 sm:w-auto"
+            >
+              Continue with form
+            </a>
+          </div>
+
+          {(displayError || notice) && (
+            <div
+              className={`mt-5 w-full rounded-2xl border px-4 py-3 text-left text-sm leading-6 ${
+                displayError
+                  ? "border-pink-200 bg-pink-50 text-pink-900"
+                  : "border-[#30a985]/20 bg-[#eaf9f3] text-[#185f4d]"
+              }`}
+              role={displayError ? "alert" : "status"}
+            >
+              {displayError || notice}
             </div>
           )}
         </div>
+
+        {transcript.length > 0 && (
+          <details className="group mx-auto mt-7 max-w-2xl rounded-2xl border border-black/[0.06] bg-white px-4 py-3 text-sm text-gray-600">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold text-gray-700 marker:hidden">
+              <span>Conversation notes</span>
+              <span className="flex items-center gap-2 text-xs font-normal text-gray-500">
+                {transcript.length} recent {transcript.length === 1 ? "message" : "messages"}
+                <svg
+                  aria-hidden="true"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-transform group-open:rotate-180"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+            </summary>
+            <ol className="mt-3 max-h-52 space-y-3 overflow-y-auto border-t border-black/[0.06] pt-3">
+              {transcript.map((item) => (
+                <li
+                  key={item.id}
+                  className="grid grid-cols-[4.5rem_1fr] gap-3 text-left leading-5"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                    {item.role === "user" ? "You" : "Keywize"}
+                  </span>
+                  <span>{item.message}</span>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
       </div>
 
-      {(displayError || notice) && (
-        <div
-          className={`mx-6 mb-6 rounded-2xl border px-4 py-3 text-sm leading-6 sm:mx-8 sm:mb-8 ${
-            displayError
-              ? "border-pink-200 bg-pink-50 text-pink-900"
-              : "border-[#30a985]/20 bg-[#eaf9f3] text-[#185f4d]"
-          }`}
-          role={displayError ? "alert" : "status"}
-        >
-          {displayError || notice}
+      <div className="border-t border-black/[0.05] bg-[#fbfaf7] px-6 py-5 sm:px-10">
+        <div className="flex items-start gap-3 text-sm leading-6 text-gray-600">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 text-pink-700">
+            <svg
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
+          <p>
+            <span className="font-semibold text-gray-900">For your safety.</span>{" "}
+            Only request service where you are authorized to enter. The locksmith
+            may ask for ID or proof of residence before starting work.
+          </p>
         </div>
-      )}
+      </div>
     </section>
   );
 }

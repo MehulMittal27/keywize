@@ -95,20 +95,20 @@ function IntakePageContent() {
           <>
             <h1 className="text-4xl font-serif tracking-tight mb-1">Start with your voice</h1>
             <p className="text-gray-500 mb-8 text-lg">
-              Talk to the Keywize Intake agent, or use the complete manual form below.
+              Talk with Keywize for a calm, guided intake, or continue with the form below.
             </p>
             <ElevenLabsIntakeVoice />
             <div className="my-10 flex items-center gap-4" aria-hidden="true">
               <div className="h-px flex-1 bg-black/10" />
               <span className="text-xs font-bold uppercase tracking-widest text-gray-600">
-                Manual fallback
+                Or continue with the form
               </span>
               <div className="h-px flex-1 bg-black/10" />
             </div>
             <div className="mx-auto mb-6 max-w-2xl">
               <h2 className="font-serif text-3xl tracking-tight">Tell us what happened</h2>
               <p className="mt-1 text-gray-500">
-                Complete this form at any time if voice is unavailable or a mission does not open.
+                Prefer not to talk? You can complete the same intake here at any time.
               </p>
             </div>
           </>
