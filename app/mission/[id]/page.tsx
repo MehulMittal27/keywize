@@ -1,8 +1,10 @@
 "use client";
 
 import { use, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConfidenceWaveform } from "@/components/ConfidenceWaveform";
+import { VendorCallProgress } from "@/components/VendorCallProgress";
 import { VoiceTrustBadge } from "@/components/VoiceTrustBadge";
 import type { Mission, Quote, VendorCallStatus } from "@/lib/types";
 
@@ -262,7 +264,9 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
               <div className="flex justify-between gap-3"><dt className="text-gray-500">Issue</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.caseType)}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-gray-500">Door</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.doorType)} · {humanize(mission.jobSpec.lockType)}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-gray-500">Area</dt><dd className="text-right font-semibold">{mission.jobSpec.locationCity}, {mission.jobSpec.locationZip}</dd></div>
-              <div className="flex justify-between gap-3 border-t border-black/5 pt-3"><dt className="text-gray-500">Authorization</dt><dd className="font-semibold text-emerald-700">Confirmed</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Urgency</dt><dd className="text-right font-semibold">{humanize(mission.jobSpec.urgency)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-black/5 pt-3"><dt className="text-gray-500">Ideal / maximum</dt><dd className="font-semibold">${mission.jobSpec.idealPrice} / ${mission.jobSpec.maxPrice}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-gray-500">Authorization</dt><dd className="font-semibold text-emerald-700">Confirmed</dd></div>
             </dl>
             <p className="mt-4 rounded-xl bg-[#f8f7f3] p-3 text-xs leading-relaxed text-gray-600">
               Proof of residence or authorization must be shown before entry. No dispatch is authorized by this mission.
@@ -271,7 +275,10 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
           <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
             <h2 className="font-serif text-lg font-semibold">Call state</h2>
-            <div className="mt-4 space-y-4">
+            <div className="mt-4">
+              <VendorCallProgress calls={quoteCalls} />
+            </div>
+            <div className="mt-5 space-y-4">
               {mission.vendorCalls.map((call) => (
                 <div key={call.id} className="flex items-center gap-3">
                   <span
@@ -300,6 +307,12 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
           {(quotesReady || mission.status === "negotiating" || reportReady) && (
             <div className="space-y-3">
+              <Link
+                href={`/mission/${mission.id}/prices`}
+                className="block w-full rounded-full border border-black bg-white px-5 py-4 text-center font-semibold"
+              >
+                Compare stored quotes →
+              </Link>
               <button
                 onClick={negotiateFastest}
                 disabled={!quotesReady || isNegotiating}
@@ -325,12 +338,19 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
         <div className="space-y-6">
           <section>
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex items-end justify-between gap-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">Structured results</p>
                 <h2 className="font-serif text-2xl font-semibold">Vendor quotes</h2>
               </div>
-              <span className="text-sm font-semibold text-gray-500">{mission.quotes.length}/3 stored</span>
+              <div className="text-right">
+                <span className="block text-sm font-semibold text-gray-500">{mission.quotes.length}/3 stored</span>
+                {mission.quotes.length > 0 && (
+                  <Link href={`/mission/${mission.id}/prices`} className="mt-1 block text-xs font-bold text-[#25866b] hover:text-black">
+                    Full comparison →
+                  </Link>
+                )}
+              </div>
             </div>
             <div className="space-y-5">
               {quoteCalls.map((call) => {
@@ -355,6 +375,11 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
           {mission.negotiation && (
             <section className="rounded-[28px] border border-purple-100 bg-purple-50 p-6">
+              <div className="mb-4 flex justify-end">
+                <Link href={`/mission/${mission.id}/negotiate`} className="text-xs font-bold text-purple-700 hover:text-black">
+                  Open negotiation window →
+                </Link>
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-purple-600">Stored leverage</p>
