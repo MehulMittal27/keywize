@@ -31,7 +31,14 @@ POST https://api.elevenlabs.io/v1/convai/agents/create
 
 Do not change this to `POST /v1/convai/agents`: that path is the list endpoint and returns `405 Method Not Allowed` for create attempts. The script saves the returned agent IDs into `.env.local`. Use `--dry-run` to validate generated payloads without contacting ElevenLabs or writing `.env.local`.
 
-The create script is for creating a fresh set of agents. It does not update existing agent or standalone tool configurations, so rerunning it after agents already exist can create duplicates. After changing `NEXT_PUBLIC_APP_URL` for already-created agents, update each existing webhook tool URL in the ElevenLabs dashboard or with the standalone tool PATCH endpoint instead of rerunning the create script unless you intentionally want new agent IDs.
+The create script always creates a fresh set of agents. It does not update existing agents or standalone tools, so rerunning it when agent IDs are already configured creates duplicates and replaces the locally saved IDs.
+
+After changing `NEXT_PUBLIC_APP_URL` for existing agents, choose one path deliberately:
+
+- Keep the existing agent IDs and update each live webhook tool URL in the ElevenLabs dashboard or with the standalone tool PATCH instructions below. This is the default when only the deployment URL changed.
+- Recreate all three agents only when a fresh set is desired. Expect new agent IDs and possible duplicate agents, then verify the new configurations before removing anything old.
+
+Changing `NEXT_PUBLIC_APP_URL` locally does not retarget tools already stored by ElevenLabs.
 
 The script explicitly requests voice mode by setting `conversation_config.conversation.text_only` to `false` on every generated agent payload. It also adds a `conversation_config.tts` block and configures platform guardrails under `platform_settings.guardrails`. Optional non-secret TTS settings can be placed in `.env.local` before rerunning the script:
 
@@ -115,18 +122,8 @@ When tools are defined inline in `POST /v1/convai/agents/create`, ElevenLabs val
 
 ```json
 {
-  "path_params_schema": {
-    "type": "object",
-    "description": "No path parameters are used by this webhook tool.",
-    "properties": {},
-    "required": []
-  },
-  "query_params_schema": {
-    "type": "object",
-    "description": "No query parameters are used by this webhook tool.",
-    "properties": {},
-    "required": []
-  },
+  "url": "https://keywize.example/api/elevenlabs/tools",
+  "method": "POST",
   "request_headers": {
     "Content-Type": "application/json"
   },
@@ -157,7 +154,9 @@ When tools are defined inline in `POST /v1/convai/agents/create`, ElevenLabs val
 }
 ```
 
-For inline agent creation, keep `request_headers`, `path_params_schema.properties`, `query_params_schema.properties`, and every request-body `properties` value as dictionaries or objects, and keep `required` as string arrays. Even when no path or query parameters are used, send object schemas with empty `properties` dictionaries instead of bare `{}`. Do not include standalone editor fields such as `id`, boolean `required` values on schema nodes, or array-style `properties`; those cause `422` validation errors on the agent creation endpoint.
+For inline agent creation, `api_schema` only needs `url`, `method`, and `request_body_schema`; Keywize also sends dictionary-style `request_headers` and an explicit JSON `content_type`. Because the Keywize URL has no path placeholders or query parameters, omit `path_params_schema` and `query_params_schema` entirely. Do not send guessed empty schemas: the create endpoint rejects JSON Schema fields such as `type`, `description`, and `required` at the path/query dictionary level, and it rejects an empty `query_params_schema.properties` dictionary.
+
+Keep every request-body `properties` value as a dictionary or object and every `required` value as a string array. Do not include standalone editor fields such as `id`, boolean `required` values on schema nodes, or array-style `properties`; those cause `422` validation errors on the agent creation endpoint.
 
 #### Standalone tool PATCH/editor schema
 
