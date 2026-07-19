@@ -78,7 +78,35 @@ Configure each ElevenLabs agent tool as a JSON webhook that sends a `POST` reque
 https://<keywize-host>/api/elevenlabs/tools
 ```
 
-Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, define exactly two visible top-level body parameters under `properties`: `tool_name` as a required string property with `constant_value` set to the tool name, and `parameters` as a required object property with description `Tool-specific JSON parameters collected by the agent.`. Put each tool's structured primitive fields directly inside the object's own `parameters.properties` map, for example `request_body_schema.properties.parameters.properties.caseType`. Do not place those child fields at the top level or under a `schema` or `value_schema` wrapper. This is ElevenLabs's ObjectJsonSchemaProperty-Input shape, not arbitrary JSON Schema. Do not use unsupported plain JSON Schema keys such as `const` or `additionalProperties` in the ElevenLabs tool schema. The endpoint also accepts older `{ tool, payload }`, `{ tool, params }`, `name`, `args`, and `input` aliases so existing agent configs keep working.
+Use `Content-Type: application/json`. In the ElevenLabs webhook `request_body_schema`, define exactly two visible top-level body parameters under `properties`: `tool_name` as a string property with `constant_value` set to the exact tool name, and `parameters` as an object property with description `Tool-specific JSON parameters collected by the agent.`. Put each tool's structured primitive fields directly inside the object's own `parameters.properties` map, for example `request_body_schema.properties.parameters.properties.caseType`. Do not place those child fields at the top level or under a `schema` or `value_schema` wrapper. This is ElevenLabs's documented ObjectJsonSchemaPropertyInput shape, not arbitrary JSON Schema. Do not add unsupported plain JSON Schema keys such as `const`, `additionalProperties`, or `required` arrays if they cause fields to disappear in the ElevenLabs UI. The endpoint also accepts older `{ tool, payload }`, `{ tool, params }`, `name`, `args`, and `input` aliases so existing agent configs keep working.
+
+Every generated webhook tool body uses this shape:
+
+```json
+{
+  "request_body_schema": {
+    "type": "object",
+    "properties": {
+      "tool_name": {
+        "type": "string",
+        "constant_value": "EXACT_TOOL_NAME"
+      },
+      "parameters": {
+        "type": "object",
+        "description": "Tool-specific JSON parameters collected by the agent.",
+        "properties": {
+          "fieldName": {
+            "type": "string",
+            "description": "Clear LLM extraction instruction."
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+For each literal field in `parameters.properties`, set exactly one value source. Most Keywize fields use `description` so the agent extracts the value. Do not combine `description` with `constant_value`, `dynamic_variable`, `is_system_provided`, or `is_omitted` on the same field. To manually inspect this in ElevenLabs, open each agent tool, expand the webhook body schema, confirm the top level shows `tool_name` and `parameters`, then expand `parameters.properties` and confirm the expected tool-specific fields are visible there.
 
 Successful responses include `success: true` plus the tool-specific result, such as a `missionId`, `quoteId`, VoiceTrust `signal`, tone classification, or updated quote.
 

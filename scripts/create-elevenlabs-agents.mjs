@@ -191,20 +191,19 @@ function buildParametersSchema(toolName) {
   return {
     type: "object",
     description: TOOL_PARAMETERS_DESCRIPTION,
-    required: fields.filter((field) => field.required).map((field) => field.name),
     properties: Object.fromEntries(
       fields.map((field) => [
         field.name,
         {
           type: field.type,
-          description: buildParameterDescription(toolName, field.name),
+          description: buildParameterDescription(toolName, field),
         },
       ]),
     ),
   };
 }
 
-function buildParameterDescription(toolName, fieldName) {
+function buildParameterDescription(toolName, field) {
   const stringListHints = {
     redFlags: "Comma-separated red flags if any; leave empty or omit if none.",
     transcriptEvidence: "Comma-separated transcript evidence snippets supporting this tool call.",
@@ -212,8 +211,10 @@ function buildParameterDescription(toolName, fieldName) {
     evasivePhrases: "Comma-separated evasive phrases heard in the answer, if any.",
     leverageUsed: "Comma-separated stored quote facts used as negotiation leverage.",
   };
+  const intent = field.required ? "Required" : "Optional";
+  const hint = stringListHints[field.name] ?? `${toolName} parameter ${field.name}.`;
 
-  return stringListHints[fieldName] ?? `${toolName} parameter ${fieldName}.`;
+  return `${intent}. ${hint}`;
 }
 
 function buildRequestBodySchema(toolName) {
@@ -221,12 +222,11 @@ function buildRequestBodySchema(toolName) {
   // tool.api_schema.request_body_schema.properties. Nested object fields must
   // be nested under that object's own properties map, such as
   // request_body_schema.properties.parameters.properties.caseType. This is the
-  // documented ObjectJsonSchemaProperty-Input shape for webhook request bodies,
+  // documented ObjectJsonSchemaPropertyInput shape for webhook request bodies,
   // not arbitrary JSON Schema and not a schema/value_schema child wrapper.
   // Keep direct fixed values as literal schema nodes with constant_value.
   return {
     type: "object",
-    description: "JSON body sent by the ElevenLabs webhook tool to Keywize.",
     properties: {
       tool_name: {
         type: "string",
@@ -234,7 +234,6 @@ function buildRequestBodySchema(toolName) {
       },
       parameters: buildParametersSchema(toolName),
     },
-    required: ["tool_name", "parameters"],
   };
 }
 
@@ -291,7 +290,7 @@ function assertNoUnsupportedSchemaKeys(value, pathLabel) {
   }
 
   for (const [key, childValue] of Object.entries(value)) {
-    if (key === "const" || key === "additionalProperties") {
+    if (key === "const" || key === "additionalProperties" || key === "required") {
       throw new Error(`ElevenLabs tool schema at ${pathLabel} uses unsupported key ${key}.`);
     }
 
@@ -328,12 +327,6 @@ function assertToolBodySchemaIsVisible(schema, toolName, pathLabel) {
     throw new Error(`ElevenLabs tool schema at ${pathLabel} must set tool_name.constant_value to ${toolName}.`);
   }
 
-  const missingRequired = ["tool_name", "parameters"].filter((propertyName) => !schema.required?.includes(propertyName));
-
-  if (missingRequired.length > 0) {
-    throw new Error(`ElevenLabs tool schema at ${pathLabel} is missing required body parameter(s): ${missingRequired.join(", ")}.`);
-  }
-
   assertParametersSchemaMatchesTool(schema.properties.parameters, toolName, `${pathLabel}.properties.parameters`);
 }
 
@@ -352,13 +345,8 @@ function assertParametersSchemaMatchesTool(parametersSchema, toolName, pathLabel
     );
   }
 
-  const required = parametersSchema.required ?? [];
-  const expectedRequired = fields.filter((field) => field.required).map((field) => field.name);
-
-  if (required.join(",") !== expectedRequired.join(",")) {
-    throw new Error(
-      `ElevenLabs tool schema at ${pathLabel} has wrong required parameters. Found: ${required.join(", ")}.`,
-    );
+  if (Object.hasOwn(parametersSchema, "required")) {
+    throw new Error(`ElevenLabs tool schema at ${pathLabel} must not use unsupported required arrays.`);
   }
 
   for (const field of fields) {
