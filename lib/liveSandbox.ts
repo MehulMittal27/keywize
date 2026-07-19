@@ -2,6 +2,13 @@ import "server-only";
 
 import { addMissionEvent } from "./missionEvents";
 import { activateNegotiationFallback, activateReliableFallback } from "./demoOrchestrator";
+import {
+  getLiveSandboxEnvValue,
+  getLiveSandboxPhoneNumberId,
+  inspectLiveSandboxConfig,
+  liveSandboxConfigFallbackReason,
+  type LiveSandboxConfigStatus,
+} from "./liveSandboxConfig";
 import type { CallRole, Mission, VendorCall, VendorId } from "./types";
 
 const OUTBOUND_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call";
@@ -37,30 +44,28 @@ function fallbackDelayMs(): number {
 
 function configFor(role: CallRole, vendorId: VendorId) {
   return {
-    apiKey: process.env.ELEVENLABS_API_KEY,
-    agentId:
+    apiKey: getLiveSandboxEnvValue(process.env, "ELEVENLABS_API_KEY"),
+    agentId: getLiveSandboxEnvValue(
+      process.env,
       role === "caller"
-        ? process.env.ELEVENLABS_CALLER_AGENT_ID
-        : process.env.ELEVENLABS_CLOSER_AGENT_ID,
-    agentPhoneNumberId: process.env.ELEVENLABS_SANDBOX_PHONE_NUMBER_ID,
-    destination: process.env[destinationEnvNames[vendorId]],
-    environment: process.env.ELEVENLABS_ENVIRONMENT,
+        ? "ELEVENLABS_CALLER_AGENT_ID"
+        : "ELEVENLABS_CLOSER_AGENT_ID"
+    ),
+    agentPhoneNumberId: getLiveSandboxPhoneNumberId(process.env),
+    destination: getLiveSandboxEnvValue(
+      process.env,
+      destinationEnvNames[vendorId]
+    ),
+    environment: getLiveSandboxEnvValue(process.env, "ELEVENLABS_ENVIRONMENT"),
   };
 }
 
+export function getLiveSandboxConfigStatus(): LiveSandboxConfigStatus {
+  return inspectLiveSandboxConfig(process.env);
+}
+
 export function liveSandboxIsConfigured(): boolean {
-  const shared = Boolean(
-    process.env.ELEVENLABS_API_KEY &&
-      process.env.ELEVENLABS_CALLER_AGENT_ID &&
-      process.env.ELEVENLABS_CLOSER_AGENT_ID &&
-      process.env.ELEVENLABS_SANDBOX_PHONE_NUMBER_ID
-  );
-  return (
-    shared &&
-    (Object.keys(destinationEnvNames) as VendorId[]).every(
-      (vendorId) => Boolean(process.env[destinationEnvNames[vendorId]])
-    )
-  );
+  return getLiveSandboxConfigStatus().configured;
 }
 
 function callerFirstMessage(mission: Mission): string {
@@ -87,9 +92,17 @@ export async function initiateSandboxCall(
   mission: Mission,
   call: VendorCall
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const configStatus = getLiveSandboxConfigStatus();
+  if (!configStatus.configured) {
+    return {
+      ok: false,
+      reason: liveSandboxConfigFallbackReason(configStatus),
+    };
+  }
+
   const config = configFor(call.role, call.vendorId);
   if (!config.apiKey || !config.agentId || !config.agentPhoneNumberId || !config.destination) {
-    return { ok: false, reason: "Live sandbox configuration is incomplete." };
+    return { ok: false, reason: "Live sandbox configuration could not be resolved safely." };
   }
 
   call.status = "ringing";
@@ -203,10 +216,11 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
     source: "live_sandbox",
   });
 
-  if (!liveSandboxIsConfigured()) {
+  const configStatus = getLiveSandboxConfigStatus();
+  if (!configStatus.configured) {
     activateReliableFallback(
       mission,
-      "Live sandbox is not configured on this server."
+      liveSandboxConfigFallbackReason(configStatus)
     );
     return;
   }
@@ -236,10 +250,16 @@ export async function startLiveSandboxMission(mission: Mission): Promise<void> {
 
 export async function startLiveSandboxNegotiation(mission: Mission): Promise<void> {
   const closerCall = mission.vendorCalls.find((call) => call.role === "closer");
-  if (!closerCall || !liveSandboxIsConfigured()) {
+  if (!closerCall) {
+    activateNegotiationFallback(mission, "Live Closer call is unavailable.");
+    return;
+  }
+
+  const configStatus = getLiveSandboxConfigStatus();
+  if (!configStatus.configured) {
     activateNegotiationFallback(
       mission,
-      "Live Closer configuration is unavailable."
+      liveSandboxConfigFallbackReason(configStatus)
     );
     return;
   }

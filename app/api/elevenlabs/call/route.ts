@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activateNegotiationFallback, activateReliableFallback } from "@/lib/demoOrchestrator";
-import { initiateSandboxCall } from "@/lib/liveSandbox";
+import {
+  getLiveSandboxConfigStatus,
+  initiateSandboxCall,
+} from "@/lib/liveSandbox";
 import { getMission, setMission } from "@/lib/store";
 import type { ElevenLabsCallPayload } from "@/lib/types";
+
+/**
+ * Returns only safe configuration diagnostics. No configured values or
+ * provider identifiers cross the server boundary.
+ */
+export function GET() {
+  const status = getLiveSandboxConfigStatus();
+  return NextResponse.json(
+    {
+      mode: "live_sandbox",
+      configured: status.configured,
+      missingEnvNames: status.missingEnvNames,
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
+}
 
 /**
  * Starts one allowlisted live sandbox leg. Destinations and provider
