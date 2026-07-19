@@ -231,6 +231,19 @@ export type RankingResult = {
   disqualified: Quote[];
 };
 
+export type MockOfferSelectionStatus = "pending" | "ready";
+
+export type MockOfferSelection = {
+  offerId: string;
+  name: string;
+  phone: string;
+  address: string;
+  price: number;
+  status: MockOfferSelectionStatus;
+  selectedAt: string;
+  readyAt: string;
+};
+
 export type Mission = {
   id: string;
   mode: MissionMode;
@@ -246,6 +259,7 @@ export type Mission = {
   fallbackReason?: string;
   selectedVendorId?: string;
   recordingUrl?: string;
+  selectedMockOffer?: MockOfferSelection;
   createdAt: string;
   updatedAt: string;
 };
