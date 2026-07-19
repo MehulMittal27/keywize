@@ -1,4 +1,12 @@
-export function VoiceTrustBadge({ level }: { level: "High" | "Medium" | "Low" }) {
+export function VoiceTrustBadge({
+  level,
+  score,
+  className = "",
+}: {
+  level: "High" | "Medium" | "Low";
+  score?: number;
+  className?: string;
+}) {
   const styles = {
     High: "bg-green-50 border-green-100 text-green-700",
     Medium: "bg-yellow-50 border-yellow-100 text-yellow-700",
@@ -35,9 +43,10 @@ export function VoiceTrustBadge({ level }: { level: "High" | "Medium" | "Low" })
   };
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-sm ${styles[level]}`}>
+    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border shadow-sm ${styles[level]} ${className}`}>
       {icons[level]}
       {labels[level]}
+      {score !== undefined && <span className="opacity-60 ml-0.5">· {score}%</span>}
     </div>
   );
 }
