@@ -77,6 +77,41 @@ If a published ElevenLabs test or widget replies with text instead of audio, che
 5. Allow browser microphone permissions and audio playback permissions for the ElevenLabs test page or embedded widget host.
 6. Confirm the agent has a voice selected in ElevenLabs, or provide `ELEVENLABS_VOICE_ID` before rerunning the setup script.
 
+## Browser Intake voice UI
+
+The browser integration intentionally connects only to the Intake agent. Caller and Closer stay in server-side flows and their agent IDs or signed URLs must never be exposed to browser code.
+
+The React UI uses `@elevenlabs/react` with the WebSocket transport. A signed URL works with WebSocket sessions, so the temporary LiveKit WebRTC override is not needed for this integration.
+
+### Configure and run
+
+1. Copy `.env.example` to `.env.local` if local environment configuration does not exist.
+2. Set `ELEVENLABS_API_KEY` and `ELEVENLABS_INTAKE_AGENT_ID` on the server. Do not prefix either variable with `NEXT_PUBLIC_`.
+3. Install dependencies and start Next.js:
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+4. Open `http://localhost:3000/intake?mode=voice`.
+5. Select **Start voice intake**, allow microphone access, and speak with Intake. The card shows connection state plus recent user and agent transcript snippets.
+6. If microphone permission, session setup, or ElevenLabs is unavailable, continue with the full manual form on the same page. `/intake` remains the manual-first route.
+
+Browsers generally allow microphone capture on HTTPS origins or `localhost`. If access was denied, enable the microphone for the site in browser settings, confirm the correct input device, and retry.
+
+### Signed URL boundary
+
+`GET /api/elevenlabs/signed-url` reads `ELEVENLABS_API_KEY` and `ELEVENLABS_INTAKE_AGENT_ID` inside the Next.js server route, calls ElevenLabs `GET /v1/convai/conversation/get-signed-url`, and returns only `{ "signedUrl": "..." }`. Responses are not cached. The API key and a standalone raw Intake agent ID are not added to the browser bundle. Missing environment configuration and ElevenLabs failures return JSON errors with a non-2xx status.
+
+Do not extend this route with Caller or Closer selection. Any future browser agent should have a separate, allowlisted server route and an explicit product review.
+
+### Voice mission handoff
+
+`create_job_spec` already returns `{ "success": true, "missionId": "..." }` from `/api/elevenlabs/tools`. The Intake UI listens for the SDK's `agent_tool_response_full_payload` callback. When that event contains a successful `create_job_spec` result with a valid mission ID, the browser navigates to `/mission/[id]`. It never derives a mission ID from transcript text or pretends that a voice mission succeeded.
+
+Some existing ElevenLabs agent configurations may not stream the full server-tool result to browser clients. In that case, the voice session still works, but automatic navigation cannot be confirmed by the browser and the manual form remains the MVP fallback. The next bridge is to enable `agent_tool_response_full_payload` in the Intake agent's client-event configuration during a deliberate agent configuration update, or add a dedicated client navigation tool that receives the mission ID after `create_job_spec` succeeds. Do not patch a live agent just to test the UI, and ensure the webhook and browser use the same Keywize deployment so the in-memory MVP mission is available to the mission page.
+
 ## Tool endpoints
 
 The agents should call backend tools for:
