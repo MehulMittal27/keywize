@@ -75,7 +75,7 @@ function AudioPlayer() {
             <div
               key={i}
               className="w-1 rounded-full bg-[#B87333]/60"
-              style={{ height: `${8 + Math.sin(i * 0.9) * 6 + Math.random() * 4}px` }}
+              style={{ height: `${8 + Math.sin(i * 0.9) * 6 + ((i * 7) % 5)}px` }}
             />
           ))}
         </div>
