@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
 
       if (mission.quotes.length >= 3) {
         mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-        mission.status = "complete";
+        mission.status = "awaiting_vendor_selection";
       }
 
       setMission(mission);
@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
       });
 
       mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-      mission.status = "complete";
+      mission.status = "negotiating";
       setMission(mission);
 
       return NextResponse.json({ success: true, updatedQuote: updated });

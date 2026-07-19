@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   // Auto-rank once we have 3+ quotes
   if (mission.quotes.length >= 3) {
     mission.recommendation = rankQuotes(mission.quotes, mission.jobSpec);
-    mission.status = "complete";
+    mission.status = "awaiting_vendor_selection";
   } else {
     mission.status = "calling_vendors";
   }
