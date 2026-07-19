@@ -4,7 +4,7 @@ Keywize uses ElevenLabs Agents for voice intake, vendor calling, and negotiation
 
 ## Agents
 
-Create three agents:
+Create three live-flow agents, plus an optional dedicated no-telephony judge demo agent:
 
 1. Intake agent
    - Collects the lockout case, location, urgency, lock type, ideal price, max price, and authorization confirmation.
@@ -14,6 +14,10 @@ Create three agents:
 
 3. Closer agent
    - Uses only real competing quotes to negotiate price or terms and produces the final recommendation.
+
+4. ElevenLabs-only judge demo agent
+   - Runs a clearly disclosed scripted Intake -> Vendor A/B/C replay -> Closer negotiation -> report flow in one ElevenLabs conversation.
+   - Configures no tools, webhooks, transfers, subagents, or telephony.
 
 ## Creating agents
 
@@ -127,6 +131,98 @@ Do not extend this route with Caller or Closer selection. Any future browser age
 `create_job_spec` already returns `{ "success": true, "missionId": "..." }` from `/api/elevenlabs/tools`. The Intake UI listens for the SDK's `agent_tool_response_full_payload` callback. When that event contains a successful `create_job_spec` result with a valid mission ID, the browser navigates to `/mission/[id]`. It never derives a mission ID from transcript text or pretends that a voice mission succeeded.
 
 Some existing ElevenLabs agent configurations may not stream the full server-tool result to browser clients. In that case, the voice session still works, but automatic navigation cannot be confirmed by the browser and the manual form remains the MVP fallback. The next bridge is to enable `agent_tool_response_full_payload` in the Intake agent's client-event configuration during a deliberate agent configuration update, or add a dedicated client navigation tool that receives the mission ID after `create_job_spec` succeeds. Do not patch a live agent just to test the UI, and ensure the webhook and browser use the same Keywize deployment so the in-memory MVP mission is available to the mission page.
+
+## ElevenLabs-only judge demo - no telephony
+
+Use this path when judges should see the entire Keywize story inside ElevenLabs without opening the Keywize app and without depending on a carrier. It creates a separate agent named **Keywize ElevenLabs-Only Judge Demo**. It does not change the existing Intake, Caller, Closer, app mission, report, or live sandbox configuration.
+
+The dedicated prompt is a deterministic staged conversation backed by `voice/demo/elevenlabs-only-demo-fixture.json`. The fixture is a prerecorded script, not evidence of real vendor outreach. The agent repeatedly discloses that no locksmith was called. Its quote ledger exists only in the current conversation and is not app or database persistence.
+
+The installed ElevenLabs reference confirms that native workflows belong on the agent's top-level `workflow`. It does not pin the complete workflow node and edge serialization used by this repository. To avoid guessing an API shape or patching live agents, this demo uses one dedicated agent with prompt-driven stages and emits no `workflow`, `run_subagent`, or `transfer_to_agent` config. This is sufficient for the no-telephony judge path and keeps the existing multi-agent live flow intact.
+
+### Create the dedicated demo agent safely
+
+The setup command is dry-run by default. A dry run does not read `.env.local`, contact ElevenLabs, or print any configured values:
+
+```bash
+npm run create:elevenlabs-demo
+```
+
+After the dry run passes:
+
+1. Copy `.env.example` to `.env.local` if needed.
+2. Set `ELEVENLABS_API_KEY`. `NEXT_PUBLIC_APP_URL`, phone number IDs, vendor destinations, Caller ID, and Closer ID are not needed for this agent.
+3. Explicitly create the dedicated agent:
+
+   ```bash
+   npm run create:elevenlabs-demo -- --apply
+   ```
+
+4. The script saves the returned ID as `ELEVENLABS_DEMO_AGENT_ID` without printing it. It never updates or deletes an existing agent. If that key is already configured, the command stops rather than patching the hosted agent. Use the existing agent, or deliberately create a fresh replacement with:
+
+   ```bash
+   npm run create:elevenlabs-demo -- --apply --create-new
+   ```
+
+5. Open **ElevenLabs -> Agents -> Keywize ElevenLabs-Only Judge Demo**.
+6. Select **Test AI agent**, use the microphone, and keep the transcript visible for evidence.
+
+Do not run either `--apply` command during routine tests. Neither command places an outbound call, but both create a hosted ElevenLabs agent and therefore require explicit operator intent.
+
+### Exact judge conversation
+
+The agent opens with a disclosure that the flow uses scripted records and no locksmith or phone number will be called. Say:
+
+> I lost my main apartment key and I'm locked out now.
+
+The agent then collects the remaining JobSpec one question per turn. Answer naturally with these safe sample facts when asked:
+
+| Prompt topic | Judge answer |
+| --- | --- |
+| Property | Apartment |
+| Door | Main entry |
+| Lock | Deadbolt |
+| Door state | Closed |
+| Stolen key | No |
+| Visible broken key | No |
+| Rekey | Yes |
+| New keys | Two |
+| City | Demo City |
+| Zip | 00000 |
+| Ideal price | $120 |
+| Maximum all-in price | $150 |
+| Budget flexibility | Strict |
+| Authorization | Yes, I am authorized |
+
+The exact question order can adapt to facts already supplied, but every agent turn must ask for only one missing field. It must ask the authorization question and remind the judge that a locksmith may require ID or proof of residence. When the compact JobSpec readback is correct, say `Yes`.
+
+Then use each exact command when requested:
+
+1. `Replay Vendor A.`
+2. `Replay Vendor B.`
+3. `Replay Vendor C.`
+4. `Run the simulated negotiation.`
+5. `Give me the final recommendation.`
+
+### Outcome judges should see
+
+- **Vendor A:** scripted `$39 starts at`, 20-minute ETA, no firm all-in total, and a vague technician-decides drilling policy. The agent ranks A high risk. VoiceTrust describes the pause, filler words, and evasive hidden-fee answer as uncertainty only, never as proof of lying.
+- **Vendor B:** scripted `$130 all-in`, 30-minute ETA, non-destructive entry first, ID or authorization proof required, and low risk. Only after this replay does the demo ledger contain the B quote.
+- **Vendor C:** scripted initial `$165 all-in`, 15-minute ETA, non-destructive entry first, ID required, and approval before drilling or a price change.
+- **Closer replay:** uses only the stored Vendor B `$130 all-in` fixture as leverage. Vendor C's scripted result improves from `$165` to `$145 all-in` while retaining the 15-minute ETA and approval protections.
+- **Final report:** C ranks first as negotiated winner, B second as fallback, and A third as high risk. It cites exact fixture transcript evidence, repeats that no real outreach occurred, and ends with approval and proof-of-residence reminders.
+
+### Difference from live phone proof
+
+| ElevenLabs-only judge demo | Live Sandbox Proof |
+| --- | --- |
+| One agent in the ElevenLabs test console | Caller and Closer agents use a controlled outbound integration |
+| Fixed, visibly disclosed prerecorded fixture | A team-controlled human or inbound persona must answer |
+| No tools, webhook, phone number, or carrier | Requires agent IDs, linked phone number ID, allowlisted destinations, and correlated tool webhooks |
+| Conversation-only demo ledger | Quotes can reach the Keywize mission store through tools |
+| Reliable judged product story | Optional transport proof that may hit trial or carrier limitations |
+
+Never present the ElevenLabs-only path as proof that a locksmith answered, quoted, negotiated, or was dispatched. Use Live Sandbox Proof only for optional controlled transport evidence.
 
 ## Judge demo execution modes
 
