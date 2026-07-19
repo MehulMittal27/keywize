@@ -5,6 +5,10 @@ import {
   initiateSandboxCall,
 } from "@/lib/liveSandbox";
 import { getMission, setMission } from "@/lib/store";
+import {
+  inspectLiveSandboxTelephony,
+  liveSandboxTelephonyBlockingReason,
+} from "@/lib/liveSandboxConfig";
 import type { ElevenLabsCallPayload } from "@/lib/types";
 
 /**
@@ -13,11 +17,15 @@ import type { ElevenLabsCallPayload } from "@/lib/types";
  */
 export function GET() {
   const status = getLiveSandboxConfigStatus();
+  const telephony = inspectLiveSandboxTelephony(process.env);
   return NextResponse.json(
     {
       mode: "live_sandbox",
       configured: status.configured,
+      callReady:
+        status.configured && !liveSandboxTelephonyBlockingReason(telephony),
       missingEnvNames: status.missingEnvNames,
+      telephony,
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -96,8 +104,10 @@ export async function POST(request: NextRequest) {
   setMission(mission);
   return NextResponse.json({
     callInitiated: true,
+    status: "call_started",
     missionId: mission.id,
     vendorId: call.vendorId,
     role: call.role,
+    telephony: mission.liveSandboxTelephony,
   });
 }

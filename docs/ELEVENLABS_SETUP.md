@@ -4,7 +4,7 @@ Keywize uses ElevenLabs Agents for voice intake, vendor calling, and negotiation
 
 ## Agents
 
-Create three agents:
+Create three live-flow agents, plus an optional dedicated no-telephony judge demo agent:
 
 1. Intake agent
    - Collects the lockout case, location, urgency, lock type, ideal price, max price, and authorization confirmation.
@@ -14,6 +14,10 @@ Create three agents:
 
 3. Closer agent
    - Uses only real competing quotes to negotiate price or terms and produces the final recommendation.
+
+4. ElevenLabs-only judge demo agent
+   - Runs a clearly disclosed scripted Intake -> Vendor A/B/C replay -> Closer negotiation -> report flow in one ElevenLabs conversation.
+   - Configures no tools, webhooks, transfers, subagents, or telephony.
 
 ## Creating agents
 
@@ -128,6 +132,98 @@ Do not extend this route with Caller or Closer selection. Any future browser age
 
 Some existing ElevenLabs agent configurations may not stream the full server-tool result to browser clients. In that case, the voice session still works, but automatic navigation cannot be confirmed by the browser and the manual form remains the MVP fallback. The next bridge is to enable `agent_tool_response_full_payload` in the Intake agent's client-event configuration during a deliberate agent configuration update, or add a dedicated client navigation tool that receives the mission ID after `create_job_spec` succeeds. Do not patch a live agent just to test the UI, and ensure the webhook and browser use the same Keywize deployment so the in-memory MVP mission is available to the mission page.
 
+## ElevenLabs-only judge demo - no telephony
+
+Use this path when judges should see the entire Keywize story inside ElevenLabs without opening the Keywize app and without depending on a carrier. It creates a separate agent named **Keywize ElevenLabs-Only Judge Demo**. It does not change the existing Intake, Caller, Closer, app mission, report, or live sandbox configuration.
+
+The dedicated prompt is a deterministic staged conversation backed by `voice/demo/elevenlabs-only-demo-fixture.json`. The fixture is a prerecorded script, not evidence of real vendor outreach. The agent repeatedly discloses that no locksmith was called. Its quote ledger exists only in the current conversation and is not app or database persistence.
+
+The installed ElevenLabs reference confirms that native workflows belong on the agent's top-level `workflow`. It does not pin the complete workflow node and edge serialization used by this repository. To avoid guessing an API shape or patching live agents, this demo uses one dedicated agent with prompt-driven stages and emits no `workflow`, `run_subagent`, or `transfer_to_agent` config. This is sufficient for the no-telephony judge path and keeps the existing multi-agent live flow intact.
+
+### Create the dedicated demo agent safely
+
+The setup command is dry-run by default. A dry run does not read `.env.local`, contact ElevenLabs, or print any configured values:
+
+```bash
+npm run create:elevenlabs-demo
+```
+
+After the dry run passes:
+
+1. Copy `.env.example` to `.env.local` if needed.
+2. Set `ELEVENLABS_API_KEY`. `NEXT_PUBLIC_APP_URL`, phone number IDs, vendor destinations, Caller ID, and Closer ID are not needed for this agent.
+3. Explicitly create the dedicated agent:
+
+   ```bash
+   npm run create:elevenlabs-demo -- --apply
+   ```
+
+4. The script saves the returned ID as `ELEVENLABS_DEMO_AGENT_ID` without printing it. It never updates or deletes an existing agent. If that key is already configured, the command stops rather than patching the hosted agent. Use the existing agent, or deliberately create a fresh replacement with:
+
+   ```bash
+   npm run create:elevenlabs-demo -- --apply --create-new
+   ```
+
+5. Open **ElevenLabs -> Agents -> Keywize ElevenLabs-Only Judge Demo**.
+6. Select **Test AI agent**, use the microphone, and keep the transcript visible for evidence.
+
+Do not run either `--apply` command during routine tests. Neither command places an outbound call, but both create a hosted ElevenLabs agent and therefore require explicit operator intent.
+
+### Exact judge conversation
+
+The agent opens with a disclosure that the flow uses scripted records and no locksmith or phone number will be called. Say:
+
+> I lost my main apartment key and I'm locked out now.
+
+The agent then collects the remaining JobSpec one question per turn. Answer naturally with these safe sample facts when asked:
+
+| Prompt topic | Judge answer |
+| --- | --- |
+| Property | Apartment |
+| Door | Main entry |
+| Lock | Deadbolt |
+| Door state | Closed |
+| Stolen key | No |
+| Visible broken key | No |
+| Rekey | Yes |
+| New keys | Two |
+| City | Demo City |
+| Zip | 00000 |
+| Ideal price | $120 |
+| Maximum all-in price | $150 |
+| Budget flexibility | Strict |
+| Authorization | Yes, I am authorized |
+
+The exact question order can adapt to facts already supplied, but every agent turn must ask for only one missing field. It must ask the authorization question and remind the judge that a locksmith may require ID or proof of residence. When the compact JobSpec readback is correct, say `Yes`.
+
+Then use each exact command when requested:
+
+1. `Replay Vendor A.`
+2. `Replay Vendor B.`
+3. `Replay Vendor C.`
+4. `Run the simulated negotiation.`
+5. `Give me the final recommendation.`
+
+### Outcome judges should see
+
+- **Vendor A:** scripted `$39 starts at`, 20-minute ETA, no firm all-in total, and a vague technician-decides drilling policy. The agent ranks A high risk. VoiceTrust describes the pause, filler words, and evasive hidden-fee answer as uncertainty only, never as proof of lying.
+- **Vendor B:** scripted `$130 all-in`, 30-minute ETA, non-destructive entry first, ID or authorization proof required, and low risk. Only after this replay does the demo ledger contain the B quote.
+- **Vendor C:** scripted initial `$165 all-in`, 15-minute ETA, non-destructive entry first, ID required, and approval before drilling or a price change.
+- **Closer replay:** uses only the stored Vendor B `$130 all-in` fixture as leverage. Vendor C's scripted result improves from `$165` to `$145 all-in` while retaining the 15-minute ETA and approval protections.
+- **Final report:** C ranks first as negotiated winner, B second as fallback, and A third as high risk. It cites exact fixture transcript evidence, repeats that no real outreach occurred, and ends with approval and proof-of-residence reminders.
+
+### Difference from live phone proof
+
+| ElevenLabs-only judge demo | Live Sandbox Proof |
+| --- | --- |
+| One agent in the ElevenLabs test console | Caller and Closer agents use a controlled outbound integration |
+| Fixed, visibly disclosed prerecorded fixture | A team-controlled human or inbound persona must answer |
+| No tools, webhook, phone number, or carrier | Requires agent IDs, linked phone number ID, allowlisted destinations, and correlated tool webhooks |
+| Conversation-only demo ledger | Quotes can reach the Keywize mission store through tools |
+| Reliable judged product story | Optional transport proof that may hit trial or carrier limitations |
+
+Never present the ElevenLabs-only path as proof that a locksmith answered, quoted, negotiated, or was dispatched. Use Live Sandbox Proof only for optional controlled transport evidence.
+
 ## Judge demo execution modes
 
 The manual intake defaults to **Reliable Demo - simulated vendors**. It creates an empty mission shell, then the server advances a deterministic state machine as the mission page polls stored state. Vendor A, B, and C quotes are persisted one at a time. The final C negotiation uses the stored Vendor B quote as leverage. No external call is required for this judged path.
@@ -139,7 +235,11 @@ To run it:
 3. Submit the authorized form, wait for three stored quote cards, then select **Negotiate fastest option**.
 4. Open the report only after the mission reaches **Terms secured**.
 
-The optional **Live Sandbox Proof** uses ElevenLabs' documented server-side Twilio outbound endpoint. It is restricted to a private registry of team-controlled vendor persona destinations. When this mode is enabled, configure this canonical set of required server-only variables in every Vercel environment where the deployment runs:
+The optional **Live Sandbox Proof** is initiated by Keywize through ElevenLabs' documented server-side Twilio outbound endpoint. Keywize does not call Twilio's REST API directly and does not read `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, or `TWILIO_PHONE_NUMBER` for this flow. ElevenLabs uses the phone number linked by `ELEVENLABS_AGENT_PHONE_NUMBER_ID` and its Twilio integration to place the provider leg.
+
+This boundary matters for logs. Start in ElevenLabs Conversations and outbound calling diagnostics. A Twilio Console contains a log only when that Twilio project owns the linked outbound leg or the destination's inbound leg. Looking at an unrelated Keywize Twilio project can correctly show no calls even though ElevenLabs accepted an outbound request.
+
+Live sandbox is restricted to a private registry of team-controlled vendor persona destinations. When this mode is enabled, configure this canonical set of required server-only variables in every Vercel environment where the deployment runs:
 
 ```txt
 ELEVENLABS_API_KEY=
@@ -149,23 +249,49 @@ ELEVENLABS_AGENT_PHONE_NUMBER_ID=
 KEYWIZE_SANDBOX_VENDOR_A_PHONE=
 KEYWIZE_SANDBOX_VENDOR_B_PHONE=
 KEYWIZE_SANDBOX_VENDOR_C_PHONE=
+# human_tester or twilio_vendor_persona
+KEYWIZE_SANDBOX_DESTINATION_KIND=human_tester
+# Required only for twilio_vendor_persona after manual verification
+KEYWIZE_SANDBOX_TWILIO_PERSONA_READY=false
 ```
 
 `ELEVENLABS_AGENT_PHONE_NUMBER_ID` is the linked outbound phone number provider ID, not a destination phone number. Existing deployments that use `ELEVENLABS_SANDBOX_PHONE_NUMBER_ID` remain supported as a backward-compatible alias, but new Vercel configuration should use the canonical name above. `ELEVENLABS_ENVIRONMENT` is an optional ElevenLabs environment selector. `KEYWIZE_LIVE_SANDBOX_FALLBACK_MS` is an optional bounded wait for all three quotes. It defaults to 120000 milliseconds and is clamped between 45000 and 180000 milliseconds.
 
-Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured` and `missingEnvNames` only. It never returns configured values. A missing-variable fallback also names only the canonical missing variables, for example `Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE`.
+`KEYWIZE_SANDBOX_DESTINATION_KIND` is a safe enum that may be shown in browser diagnostics; it never contains a number or provider identifier. Existing deployments without it remain callable but show an ambiguity warning. When it is `twilio_vendor_persona`, Keywize refuses to dial until `KEYWIZE_SANDBOX_TWILIO_PERSONA_READY=true`. Set that acknowledgement only after manually verifying the Twilio destination's inbound Voice app as described below.
+
+Never prefix these names with `NEXT_PUBLIC_`. After changing Vercel variables, redeploy the affected environment because an existing deployment does not receive later environment edits. `GET /api/elevenlabs/call` safely reports `configured`, `callReady`, canonical `missingEnvNames`, and the safe telephony diagnostics described below. It never returns configured values. `configured` means required values exist; `callReady` is false when a declared Twilio destination has not passed the persona-readiness gate. A missing-variable fallback names only canonical missing variables, for example `Missing: KEYWIZE_SANDBOX_VENDOR_B_PHONE`.
 
 ### Live sandbox test procedure
 
-The linked ElevenLabs/Twilio outbound number calls the configured A destination first. After A's `save_quote` succeeds, Keywize calls B, then C. Sequential calls let one captain use a personal test phone for all three slots without simultaneous calls. The browser never supplies a destination, and no arbitrary locksmith or business number can be dialed.
+The linked ElevenLabs/Twilio outbound number calls the configured A destination first. After A's `save_quote` succeeds, Keywize calls B, then C. The browser never supplies a destination, and no arbitrary locksmith or business number can be dialed.
 
-Before selecting **Live Sandbox Proof**, keep this roleplay card open. Answer the incoming calls and stay connected through the Caller's final readback:
+Choose and complete one destination setup path before selecting **Live Sandbox Proof**.
+
+#### Path 1: personal phone with a human tester
+
+1. Put only a team-controlled test phone in the three server allowlist slots. The same phone may be used for A, B, and C because calls are sequential.
+2. Set `KEYWIZE_SANDBOX_DESTINATION_KIND=human_tester`.
+3. Keep the roleplay card below open. Pick up each incoming call, answer as the assigned vendor, and stay connected through the Caller's final readback.
+4. If a recording says the account is a trial or asks for a key "to execute your code," note that this is not the Keywize Caller opening. It may be a trial gate on the Twilio integration linked in ElevenLabs. Pressing a key only clears that provider gate; it does not supply vendor facts. If the call then disconnects, inspect the corresponding ElevenLabs conversation and the Twilio project backing the linked number, if the team controls it.
+
+#### Path 2: Twilio number backed by a vendor persona
+
+1. Use only a dedicated, team-controlled Twilio Voice number as the allowlisted destination. Do not use a real locksmith number.
+2. In that number's Twilio **Voice Configuration**, set **A call comes in** to a public HTTPS webhook or Twilio application that conducts a multi-turn Vendor A/B/C voice persona. It must listen to the Caller's assigned slot and provide the roleplay facts below.
+3. Do not point this destination at Keywize's `/api/twilio/inbound` route. That route is an inbound customer-intake placeholder, not a vendor persona. Do not leave the number on a Twilio default trial/demo application, a static "execute your code" prompt, empty TwiML, or TwiML that immediately hangs up.
+4. Call the destination manually. Confirm that it answers with the controlled vendor persona and can complete a short two-way voice exchange.
+5. Set `KEYWIZE_SANDBOX_DESTINATION_KIND=twilio_vendor_persona` and only then set `KEYWIZE_SANDBOX_TWILIO_PERSONA_READY=true`. Redeploy the environment.
+6. For this receiving leg, inspect inbound Voice logs in the Twilio project that owns the destination number. The Keywize app's Twilio project may be different.
+
+Before the calls, keep this roleplay card open. A human tester speaks these facts; a controlled Twilio vendor persona must be configured to provide the same facts:
 
 1. **Vendor A:** Say the service call starts at `$39`, the technician decides labor and drilling on site, ETA is 20 minutes, and no ID is required. Do not confirm an all-in total.
 2. **Vendor B:** Say `$130 all-in`: `$40` dispatch plus `$90` labor, 30-minute ETA, no-drill first, ID required, no other fees, and a 90-day warranty.
 3. **Vendor C:** Say `$165 all-in`: `$45` dispatch plus `$120` labor, 15-minute ETA, non-destructive entry first, ID required, no other fees, and a one-year warranty.
 
-The Caller identifies the assigned sandbox persona in its opening. If a personal phone recipient answers as themselves, stays silent, or hangs up before supplying quote facts, the Caller has no truthful data for `save_quote`. Keywize must not invent those facts.
+The Caller identifies the assigned sandbox persona in an opening that begins with "Hi, this is Keywize's controlled live sandbox test." A trial-account or "execute your code" recording therefore does not come from the configured Keywize Caller opening. From the Keywize response alone, the app cannot safely decide whether that recording is a Twilio trial gate on the linked outbound integration or a programmable Voice application on a Twilio destination. Use the owning provider logs above to separate those legs instead of guessing.
+
+If a personal phone recipient answers as themselves, stays silent, or hangs up before supplying quote facts, the Caller has no truthful data for `save_quote`. Keywize must not invent those facts.
 
 The Caller receives job and service-area facts but not the user's budget or a competing quote. The Closer receives only the stored target, hard ceiling, and validated leverage snapshot. Call recording is disabled in this proof route.
 
@@ -183,14 +309,27 @@ Live writes require private call correlation. Current tool schemas send `mission
 
 ### Reading live proof diagnostics
 
-The mission UI exposes only vendor-slot names and safe statuses:
+The mission UI exposes only vendor-slot names, safe provider enums, and these lifecycle statuses:
 
-- **Live call started** means ElevenLabs accepted the allowlisted outbound request. It does not claim the phone was answered.
-- **Phone answered** means server-side conversation status entered an active or completed phone session.
-- **save_quote webhook never reached Keywize** means no quote tool request was observed before the call ended or timed out. Verify the public webhook URL and that the tester supplied the roleplay facts.
-- **save_quote webhook called but rejected** includes only safe missing-field or correlation reasons. It never exposes payload values or provider IDs.
-- **Timed out waiting for all quotes** means the bounded wait ended before all three correlated quotes were stored.
-- **Disclosed reliable replay used** means only missing demo results are being completed from the labeled persona fixtures.
+- **call_started** means ElevenLabs returned an explicit success and a trackable conversation reference for the allowlisted outbound request. An HTTP success without those fields is rejected. This status does not claim the phone was answered.
+- **callee_answered** is inferred from ElevenLabs conversation activity or a correlated tool webhook. Keywize does not currently receive a direct carrier answer callback, and the UI says so.
+- **tool_called** means the correlated `save_quote` webhook reached Keywize. It may still be rejected for safe validation reasons.
+- **quote_saved** means the structured quote passed validation and was persisted.
+- **timed_out_no_quote** means: "Call placed, but no quote webhook arrived. Check that the destination answers as Vendor A/B/C." If the destination is Twilio, also verify its inbound Voice webhook/TwiML runs the vendor persona instead of a default trial/demo app.
+- **fallback** means only missing demo results are being completed from the visibly disclosed persona fixtures.
+
+The browser receives no destination number, API key, agent ID, phone number ID, provider ID, Twilio SID, ElevenLabs conversation ID, or raw call ID. `GET /api/elevenlabs/call` returns the fixed safe path (`elevenlabs` initiator, `twilio` integration, direct Keywize Twilio REST usage `false`), destination-kind enum, readiness boolean, and canonical missing environment variable names only.
+
+#### Log lookup by leg
+
+| What happened | First place to check | Why another Twilio Console can be empty |
+| --- | --- | --- |
+| ElevenLabs accepted or rejected launch | ElevenLabs Conversations/outbound calling diagnostics | Keywize initiated through ElevenLabs, not the app's Twilio REST credentials |
+| Linked Twilio integration played a trial gate | The Twilio project that backs the phone number linked in ElevenLabs, if team-owned | Twilio logs are project-scoped; the app's configured project may not own that number |
+| Twilio destination played a demo prompt or disconnected | Inbound Voice logs for the Twilio project owning the destination | This is the receiving leg, potentially in a different Twilio project |
+| Human test phone answered but no quote appeared | ElevenLabs conversation plus the Keywize `tool_called` status | A carrier answer alone does not prove the tester roleplayed or that `save_quote` ran |
+
+This separates the trigger from the masking and symptom: the telephony trial/demo gate prevents the controlled vendor exchange; a launch-only success can mask that failure; the visible symptom is an ended call with no `tool_called` or `quote_saved` event.
 
 If configuration is absent, initiation fails, or complete correlated tool results do not arrive before the timeout, the same mission visibly switches to reliable simulated replay. The UI keeps the `Live Sandbox` badge and labels the fallback. This prevents live transport from becoming the critical judge path.
 

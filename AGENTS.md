@@ -12,7 +12,10 @@ Keywize is a hackathon MVP for a voice-first AI locksmith negotiator. The produc
 - Treat VoiceTrust as an uncertainty signal, not a lie detector.
 - Keep user safety explicit: authorization confirmation and proof-of-residence reminders are required for lockout flows.
 - Do not commit real API keys, Twilio credentials, ElevenLabs keys, phone numbers, or user addresses.
-- Use mock data first when real integrations are not ready.
+- Do not depend on paid Twilio features or real carrier calls for the critical hackathon demo. Default to the simulated Vendor A/B/C persona flow with prerecorded or replayable evidence.
+- Treat live sandbox calls as optional proof only, using controlled endpoints that answer as vendor personas. See `docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure` for boundaries.
+- If a destination plays trial-account prompts or disconnects, treat it as a telephony limitation rather than a Keywize logic bug. Switch to the reliable demo path or a controlled in-app/browser persona simulation.
+- Never dial arbitrary real locksmiths during demos.
 - Do not manually edit generated build artifacts.
 
 ## Project structure

@@ -93,7 +93,7 @@ Open `/intake`, leave **Reliable Demo** selected, and submit the authorized form
 
 ### Optional live sandbox proof
 
-Select **Live Sandbox Proof** only after configuring the server-only allowlist and roleplay procedure documented in [`docs/ELEVENLABS_SETUP.md`](docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure). It can dial only team-controlled persona endpoints. Calls run sequentially, and the receiving tester must answer as Vendor A, B, then C using the on-screen facts. The browser never supplies or receives a destination, agent ID, phone number ID, or raw provider ID. Safe status diagnostics explain unanswered calls, missing or rejected `save_quote` webhooks, timeout, and the visibly labeled reliable replay fallback.
+Select **Live Sandbox Proof** only after configuring the server-only allowlist and one of the destination paths documented in [`docs/ELEVENLABS_SETUP.md`](docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure): a human tester phone or a verified Twilio vendor persona. Keywize initiates through ElevenLabs' linked Twilio integration, not the app's Twilio REST credentials. Calls run sequentially, and the destination must answer as Vendor A, B, then C using the on-screen facts. A default trial/demo prompt is not a vendor persona. Safe browser diagnostics expose only provider-path enums and lifecycle stages, never a destination, agent ID, phone number ID, provider ID, or raw call ID. Missing results visibly switch to reliable replay.
 
 ## Docs
 

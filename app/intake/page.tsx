@@ -1,37 +1,32 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ElevenLabsIntakeVoice } from "@/components/ElevenLabsIntakeVoice";
+import { clampMaxPrice } from "@/lib/jobSpec";
+import {
+  LIVE_SANDBOX_ROLEPLAY,
+  LIVE_SANDBOX_VENDOR_ORDER,
+} from "@/lib/liveSandboxGuide";
 
-const CASES_PRIMARY = [
-  { id: "room_key_lost",            label: "Room key lost",             icon: "🚪" },
-  { id: "key_inside_locked_out",    label: "Key inside, locked out",    icon: "🔑" },
-  { id: "main_apartment_key_lost",  label: "Main apartment key lost",   icon: "🏠" },
-  { id: "key_stolen",               label: "Key stolen",                icon: "⚠️" },
-  { id: "broken_key_inside_lock",   label: "Broken key inside lock",    icon: "🔧" },
+const CASES = [
+  { id: "room_key_lost", label: "Lost room key" },
+  { id: "key_inside_locked_out", label: "Locked inside" },
+  { id: "main_apartment_key_lost", label: "Lost main key" },
+  { id: "key_stolen", label: "Stolen keys" },
+  { id: "broken_key_inside_lock", label: "Broken key inside lock" },
 ];
 
-const CASES_EXTRA = [
-  { id: "lock_replacement",         label: "Lock replacement needed",   icon: "🔒" },
-  { id: "car_lockout",              label: "Car key locked inside",     icon: "🚗" },
-  { id: "safe_lockout",             label: "Safe or cabinet locked",    icon: "🗄️" },
-  { id: "office_lockout",           label: "Office / commercial lockout", icon: "🏢" },
-];
-
-const MOCK_PROFILE = {
-  address: "123 Main St, San Francisco, CA 94109",
-  phone: "+1 (415) 555-0123",
-};
-
-export default function IntakePage() {
+function IntakePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isVoiceMode = searchParams.get("mode") === "voice";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [addressConfirmed, setAddressConfirmed] = useState(true);
-  const [editingAddress, setEditingAddress] = useState(false);
-  const [profileAddress, setProfileAddress] = useState(MOCK_PROFILE.address);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showMoreCases, setShowMoreCases] = useState(false);
+  const [step, setStep] = useState(1);
+  const [missionMode, setMissionMode] = useState<"reliable_demo" | "live_sandbox">(
+    "reliable_demo"
+  );
 
   const [form, setForm] = useState({
     caseType: "broken_key_inside_lock",
@@ -41,16 +36,26 @@ export default function IntakePage() {
     lockType: "deadbolt" as "deadbolt" | "knob" | "lever" | "smart_lock" | "unknown",
     locationCity: "San Francisco",
     locationZip: "94109",
-    idealPrice: 80,
-    maxPrice: 110,
+    idealPrice: 120,
+    maxPrice: 150,
     budgetFlexibility: "strict" as "strict" | "flexible_for_speed" | "flexible_for_rekey",
     newKeysNeeded: 1,
     authorizationConfirmed: false,
-    scheduledDate: "",
-    scheduledTime: "",
   });
 
   const set = (key: string, value: unknown) => setForm(f => ({ ...f, [key]: value }));
+
+  // maxPrice must stay within [idealPrice, idealPrice * 100] - a budget
+  // below the ideal price leaves nothing to negotiate down to. The slider
+  // clamps live (drag movements are discrete); the typed number box only
+  // clamps on blur so a value like "111" can be typed digit by digit
+  // without the field fighting back mid-keystroke.
+  const setIdealPrice = (value: number) =>
+    setForm(f => ({ ...f, idealPrice: value, maxPrice: clampMaxPrice(value, f.maxPrice) }));
+  const setMaxPrice = (value: number) =>
+    setForm(f => ({ ...f, maxPrice: clampMaxPrice(f.idealPrice, value) }));
+  const commitIdealPrice = () => setIdealPrice(form.idealPrice);
+  const commitMaxPrice = () => setMaxPrice(form.maxPrice);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +85,7 @@ export default function IntakePage() {
           brokenKeyVisible: form.caseType === "broken_key_inside_lock",
           needRekey: form.caseType === "key_stolen",
           approvalRequiredAboveBudget: true,
+          mode: missionMode,
         }),
       });
 
@@ -87,349 +93,439 @@ export default function IntakePage() {
       const data = await res.json();
       router.push(`/mission/${data.id}`);
     } catch {
-      router.push("/mission/mission-001");
+      setError("We could not create this mission. Your form is preserved so you can retry.");
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f5f0] text-[#111111] font-sans pb-24">
-      <nav className="flex items-center justify-between px-8 py-5 max-w-2xl mx-auto border-b border-black/5">
+    <div className="min-h-screen bg-[#fbfaf7] text-[#111111] font-sans pb-24">
+      <nav className={`flex items-center justify-between px-6 sm:px-8 py-5 mx-auto border-b border-black/5 ${isVoiceMode ? "max-w-4xl" : "max-w-2xl"}`}>
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
           <div className="w-6 h-6 bg-[#111111] rounded flex items-center justify-center">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              <circle cx="7.5" cy="15.5" r="2" fill="white" />
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
             </svg>
           </div>
           <span className="font-bold tracking-tight">Keywize</span>
         </div>
-        <div className="text-sm font-medium text-gray-400">Step 2 of 4 — Intake</div>
+        <div className="text-sm font-medium text-gray-600">Step {step} of 4 - Intake</div>
       </nav>
 
-      <main className="max-w-2xl mx-auto mt-10 px-6 space-y-6">
-        <div>
-          <h1 className="text-4xl font-serif tracking-tight mb-1">Tell us what happened</h1>
-          <p className="text-gray-500 text-lg">We'll use this to find and negotiate the best possible deal.</p>
-        </div>
-
-        {/* Pre-filled Profile Card */}
-        <div className="bg-white rounded-[18px] border border-black/5 shadow-sm p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#f7f5f0] border border-black/8 flex items-center justify-center text-lg font-serif font-bold text-[#111111]">
-                W
-              </div>
-              <div>
-                <div className="font-semibold text-sm">Mr. Wazowski</div>
-                <div className="text-xs text-gray-400">{MOCK_PROFILE.phone}</div>
-              </div>
-            </div>
-            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-[8px] text-xs font-semibold border ${addressConfirmed ? "bg-green-50 text-green-700 border-green-100" : "bg-yellow-50 text-yellow-700 border-yellow-100"}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${addressConfirmed ? "bg-green-500" : "bg-yellow-500"}`} />
-              {addressConfirmed ? "Verified" : "Unconfirmed"}
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-black/5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Service address</div>
-                {editingAddress ? (
-                  <input
-                    type="text"
-                    value={profileAddress}
-                    onChange={e => setProfileAddress(e.target.value)}
-                    className="w-full text-sm px-3 py-2 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#B87333]/30"
-                    autoFocus
-                  />
-                ) : (
-                  <div className="text-sm font-medium">{profileAddress}</div>
-                )}
-              </div>
-              {editingAddress ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingAddress(false);
-                    setAddressConfirmed(true);
-                    const parts = profileAddress.split(", ");
-                    if (parts.length >= 2) {
-                      set("locationCity", parts[1] || form.locationCity);
-                    }
-                  }}
-                  className="mt-4 px-4 py-2 bg-[#B87333] text-white rounded-[10px] text-xs font-semibold hover:bg-[#9a6025] transition-colors shrink-0"
-                >
-                  Confirm
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingAddress(true);
-                    setAddressConfirmed(false);
-                  }}
-                  className="mt-4 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-[10px] text-xs font-semibold hover:bg-gray-50 transition-colors shrink-0"
-                >
-                  Edit
-                </button>
-              )}
-            </div>
-          </div>
-
-          {!editingAddress && !addressConfirmed && (
-            <p className="mt-3 text-xs text-yellow-600 font-medium">
-              Please confirm or edit your address before continuing.
+      <main className={`mx-auto mt-10 px-6 ${isVoiceMode ? "max-w-4xl" : "max-w-2xl"}`}>
+        {isVoiceMode ? (
+          <>
+            <h1 className="text-4xl font-serif tracking-tight mb-1">Start with your voice</h1>
+            <p className="text-gray-500 mb-8 text-lg">
+              Talk with Keywize for a calm, guided intake, or continue with the form below.
             </p>
+            <ElevenLabsIntakeVoice />
+            <div className="my-10 flex items-center gap-4" aria-hidden="true">
+              <div className="h-px flex-1 bg-black/10" />
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-600">
+                Or continue with the form
+              </span>
+              <div className="h-px flex-1 bg-black/10" />
+            </div>
+            <div className="mx-auto mb-6 max-w-2xl">
+              <h2 className="font-serif text-3xl tracking-tight">Tell us what happened</h2>
+              <p className="mt-1 text-gray-500">
+                Prefer not to talk? You can complete the same intake here at any time.
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-4xl font-serif tracking-tight mb-1">Tell us what happened</h1>
+            <p className="text-gray-500 mb-8 text-lg">We will use this to negotiate the best possible rate.</p>
+          </>
+        )}
+
+        <form
+          id="manual-intake"
+          onSubmit={handleSubmit}
+          className={`bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-black/5 min-h-[400px] flex flex-col ${isVoiceMode ? "mx-auto max-w-2xl" : ""}`}
+        >
+          {step === 1 && (
+            <div className="space-y-8 flex-1 flex flex-col animate-slide-up">
+              <h2 className="text-xl font-bold tracking-tight border-b border-black/5 pb-2">
+                Situation &amp; Urgency
+              </h2>
+
+              <fieldset className="space-y-3">
+                <legend className="font-semibold block text-sm">What is your lockout situation?</legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {CASES.map((item) => (
+                    <label
+                      key={item.id}
+                      className={`flex items-center p-4 border rounded-2xl cursor-pointer transition-all ${form.caseType === item.id ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]" : "border-gray-200 hover:border-gray-300"}`}
+                    >
+                      <input type="radio" name="caseType" value={item.id} checked={form.caseType === item.id} onChange={e => set("caseType", e.target.value)} className="sr-only" />
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="space-y-2">
+                <p className="font-semibold text-sm">New keys needed</p>
+                <div className="flex gap-2">
+                  {[0, 1, 2, 3].map(n => (
+                    <button key={n} type="button" onClick={() => set("newKeysNeeded", n)} className={`w-12 h-12 rounded-xl font-medium text-sm border transition-all ${form.newKeysNeeded === n ? "bg-[#111111] text-white border-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <fieldset className="space-y-2">
+                <legend className="font-semibold text-sm">Urgency</legend>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {[
+                    { id: "locked_out_now", label: "Locked out NOW" },
+                    { id: "today", label: "Today" },
+                    { id: "scheduled", label: "Scheduled" },
+                  ].map(u => (
+                    <label key={u.id} className={`text-center py-3 text-sm font-medium rounded-xl border cursor-pointer transition-all ${form.urgency === u.id ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
+                      <input type="radio" name="urgency" value={u.id} checked={form.urgency === u.id} onChange={e => set("urgency", e.target.value)} className="sr-only" />
+                      {u.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="mt-auto pt-8">
+                <button type="button" onClick={() => setStep(2)} className="w-full py-4 rounded-full font-medium text-white bg-[#111111] hover:bg-gray-800 transition-all shadow-md">
+                  Next →
+                </button>
+              </div>
+            </div>
           )}
-        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-white rounded-[18px] border border-black/5 shadow-sm p-6 space-y-3">
-            <label className="font-semibold block text-sm">What is your situation?</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {CASES_PRIMARY.map((item) => (
-                <label
-                  key={item.id}
-                  className={`flex items-center gap-3 p-4 border rounded-[14px] cursor-pointer transition-all ${
-                    form.caseType === item.id
-                      ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
-                  <input type="radio" name="caseType" value={item.id} checked={form.caseType === item.id} onChange={e => set("caseType", e.target.value)} className="sr-only" />
-                  <span className="text-xl">{item.icon}</span>
-                  <span className="text-sm font-medium">{item.label}</span>
-                </label>
-              ))}
+          {step === 2 && (
+            <div className="space-y-8 flex-1 flex flex-col animate-slide-up">
+              <h2 className="text-xl font-bold tracking-tight border-b border-black/5 pb-2">
+                Location &amp; Details
+              </h2>
 
-              {showMoreCases && CASES_EXTRA.map((item) => (
-                <label
-                  key={item.id}
-                  className={`flex items-center gap-3 p-4 border rounded-[14px] cursor-pointer transition-all ${
-                    form.caseType === item.id
-                      ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
-                  <input type="radio" name="caseType" value={item.id} checked={form.caseType === item.id} onChange={e => set("caseType", e.target.value)} className="sr-only" />
-                  <span className="text-xl">{item.icon}</span>
-                  <span className="text-sm font-medium">{item.label}</span>
-                </label>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowMoreCases(v => !v)}
-              className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-[#111111] transition-colors"
-            >
-              <svg
-                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                className={`transition-transform ${showMoreCases ? "rotate-180" : ""}`}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-              {showMoreCases ? "Show less" : "Show more"}
-            </button>
-          </div>
-
-          {/* Urgency */}
-          <div className="bg-white rounded-[18px] border border-black/5 shadow-sm p-6 space-y-3">
-            <label className="font-semibold block text-sm">How urgent is this?</label>
-            <div className="flex gap-3">
-              {[
-                { id: "locked_out_now", label: "Right now" },
-                { id: "today", label: "Today" },
-                { id: "scheduled", label: "Scheduled" },
-              ].map(u => (
-                <label
-                  key={u.id}
-                  className={`flex-1 text-center py-3 text-sm font-medium rounded-[10px] border cursor-pointer transition-all ${
-                    form.urgency === u.id
-                      ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <input type="radio" name="urgency" value={u.id} checked={form.urgency === u.id} onChange={e => set("urgency", e.target.value)} className="sr-only" />
-                  {u.label}
-                </label>
-              ))}
-            </div>
-
-            {form.urgency === "scheduled" && (
-              <div className="pt-3 border-t border-black/5 grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Date</label>
-                  <input
-                    type="date"
-                    value={form.scheduledDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={e => set("scheduledDate", e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 text-sm"
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="locationCity" className="font-semibold text-sm">City</label>
+                  <input id="locationCity" name="locationCity" autoComplete="address-level2" type="text" value={form.locationCity} onChange={e => set("locationCity", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Time</label>
-                  <input
-                    type="time"
-                    value={form.scheduledTime}
-                    onChange={e => set("scheduledTime", e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 text-sm"
-                  />
+                <div className="space-y-2">
+                  <label htmlFor="locationZip" className="font-semibold text-sm">ZIP Code</label>
+                  <input id="locationZip" name="locationZip" autoComplete="postal-code" inputMode="numeric" type="text" value={form.locationZip} onChange={e => set("locationZip", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm" />
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Advanced collapsible */}
-          <div className="bg-white rounded-[18px] border border-black/5 shadow-sm overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(v => !v)}
-              className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors"
-            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="propertyType" className="font-semibold text-sm">Property type</label>
+                  <select id="propertyType" name="propertyType" value={form.propertyType} onChange={e => set("propertyType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+                    <option value="apartment">Apartment</option>
+                    <option value="dorm">Dorm</option>
+                    <option value="house">House</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="doorType" className="font-semibold text-sm">Door type</label>
+                  <select id="doorType" name="doorType" value={form.doorType} onChange={e => set("doorType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+                    <option value="main_entry">Main entry</option>
+                    <option value="room">Room door</option>
+                    <option value="building_entry">Building entry</option>
+                    <option value="storage">Storage</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="lockType" className="font-semibold text-sm">Lock type</label>
+                  <select id="lockType" name="lockType" value={form.lockType} onChange={e => set("lockType", e.target.value)} className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#111111]/20 transition-all text-sm">
+                    <option value="deadbolt">Deadbolt</option>
+                    <option value="knob">Knob</option>
+                    <option value="lever">Lever</option>
+                    <option value="smart_lock">Smart lock</option>
+                    <option value="unknown">Unknown</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-auto pt-8 flex flex-col-reverse gap-3 sm:flex-row sm:gap-4">
+                <button type="button" onClick={() => setStep(1)} className="w-full sm:w-1/3 py-4 rounded-full font-medium text-[#111111] border border-gray-200 hover:bg-gray-50 transition-all">
+                  Back
+                </button>
+                <button type="button" onClick={() => setStep(3)} className="w-full sm:w-2/3 py-4 rounded-full font-medium text-white bg-[#111111] hover:bg-gray-800 transition-all shadow-md">
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-8 flex-1 flex flex-col animate-slide-up">
+              <h2 className="text-xl font-bold tracking-tight border-b border-black/5 pb-2">
+                Budget &amp; Flexibility
+              </h2>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label htmlFor="idealPrice" className="font-semibold text-sm">Ideal price</label>
+                      <p className="text-xs text-gray-500">The amount you would prefer to pay.</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5">
+                      <span className="text-sm font-bold text-[#30a985]">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        aria-label="Ideal price, exact amount"
+                        value={form.idealPrice}
+                        onChange={e => set("idealPrice", e.target.value === "" ? 0 : Number(e.target.value))}
+                        onBlur={commitIdealPrice}
+                        className="w-16 bg-transparent text-sm font-bold text-[#30a985] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <input id="idealPrice" name="idealPrice" type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => setIdealPrice(parseInt(e.target.value))} className="w-full accent-[#30a985]" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label htmlFor="maxPrice" className="font-semibold text-sm">Absolute Max Budget</label>
+                      <p className="text-xs text-gray-500">We will disqualify any vendor who refuses to cap their price under this amount.</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5">
+                      <span className="text-sm font-bold text-pink-600">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        aria-label="Absolute max budget, exact amount"
+                        value={form.maxPrice}
+                        onChange={e => set("maxPrice", e.target.value === "" ? 0 : Number(e.target.value))}
+                        onBlur={commitMaxPrice}
+                        className="w-16 bg-transparent text-sm font-bold text-pink-600 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <input id="maxPrice" name="maxPrice" type="range" min={form.idealPrice} max={form.idealPrice * 100} step="10" value={form.maxPrice} onChange={e => setMaxPrice(parseInt(e.target.value))} className="w-full accent-[#111111]" />
+                </div>
+              </div>
+
+              <fieldset className="space-y-2">
+                <legend className="font-semibold text-sm">Budget flexibility</legend>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {[
+                    { id: "strict", label: "Strict" },
+                    { id: "flexible_for_speed", label: "Flexible for speed" },
+                    { id: "flexible_for_rekey", label: "Flexible for rekey" },
+                  ].map(b => (
+                    <label key={b.id} className={`text-center py-3 text-xs font-medium rounded-xl border cursor-pointer transition-all ${form.budgetFlexibility === b.id ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
+                      <input type="radio" name="budgetFlexibility" value={b.id} checked={form.budgetFlexibility === b.id} onChange={e => set("budgetFlexibility", e.target.value)} className="sr-only" />
+                      {b.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="mt-auto pt-8 flex flex-col-reverse gap-3 sm:flex-row sm:gap-4">
+                <button type="button" onClick={() => setStep(2)} className="w-full sm:w-1/3 py-4 rounded-full font-medium text-[#111111] border border-gray-200 hover:bg-gray-50 transition-all">
+                  Back
+                </button>
+                <button type="button" onClick={() => setStep(4)} className="w-full sm:w-2/3 py-4 rounded-full font-medium text-white bg-[#111111] hover:bg-gray-800 transition-all shadow-md">
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-8 flex-1 flex flex-col animate-slide-up">
+              <h2 className="text-xl font-bold tracking-tight border-b border-black/5 pb-2">
+                Final Confirmation
+              </h2>
+
+              <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 space-y-3">
+                <h3 className="font-semibold text-sm text-gray-500 uppercase tracking-wider mb-2">Overview</h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-4 text-sm pb-4 border-b border-gray-200/60">
+                  <div>
+                    <span className="block text-gray-500">Situation</span>
+                    <span className="font-medium">{CASES.find(c => c.id === form.caseType)?.label || form.caseType}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">New Keys Needed</span>
+                    <span className="font-medium">{form.newKeysNeeded}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Urgency</span>
+                    <span className="font-medium capitalize">{form.urgency.replace(/_/g, " ")}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-4 text-sm py-4 border-b border-gray-200/60">
+                  <div>
+                    <span className="block text-gray-500">City</span>
+                    <span className="font-medium">{form.locationCity}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">ZIP Code</span>
+                    <span className="font-medium">{form.locationZip}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Property Type</span>
+                    <span className="font-medium capitalize">{form.propertyType}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Door Type</span>
+                    <span className="font-medium capitalize">{form.doorType.replace(/_/g, " ")}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Lock Type</span>
+                    <span className="font-medium capitalize">{form.lockType.replace(/_/g, " ")}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-4 text-sm pt-4">
+                  <div>
+                    <span className="block text-gray-500">Ideal Price</span>
+                    <span className="font-medium">${form.idealPrice}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Max Budget</span>
+                    <span className="font-medium">${form.maxPrice}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Budget Flexibility</span>
+                    <span className="font-medium capitalize">{form.budgetFlexibility.replace(/_/g, " ")}</span>
+                  </div>
+                </div>
+              </div>
+
               <div>
-                <span className="font-semibold text-sm">Advanced settings</span>
-                {!showAdvanced && (
-                  <span className="ml-3 text-xs text-gray-400">
-                    Budget cap: ${form.maxPrice} · {form.doorType.replace("_", " ")} door
-                  </span>
-                )}
-              </div>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`text-gray-400 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-
-            {showAdvanced && (
-              <div className="px-6 pb-6 space-y-6 border-t border-black/5">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
-                  <div className="space-y-2">
-                    <label className="font-semibold text-xs text-gray-500 uppercase tracking-wide">Property</label>
-                    <select value={form.propertyType} onChange={e => set("propertyType", e.target.value)} className="w-full px-3 py-3 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none text-sm">
-                      <option value="apartment">Apartment</option>
-                      <option value="dorm">Dorm</option>
-                      <option value="house">House</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="font-semibold text-xs text-gray-500 uppercase tracking-wide">Door</label>
-                    <select value={form.doorType} onChange={e => set("doorType", e.target.value)} className="w-full px-3 py-3 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none text-sm">
-                      <option value="main_entry">Main entry</option>
-                      <option value="room">Room door</option>
-                      <option value="building_entry">Building entry</option>
-                      <option value="storage">Storage</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="font-semibold text-xs text-gray-500 uppercase tracking-wide">Lock</label>
-                    <select value={form.lockType} onChange={e => set("lockType", e.target.value)} className="w-full px-3 py-3 rounded-[10px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none text-sm">
-                      <option value="deadbolt">Deadbolt</option>
-                      <option value="knob">Knob</option>
-                      <option value="lever">Lever</option>
-                      <option value="smart_lock">Smart lock</option>
-                      <option value="unknown">Unknown</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="font-semibold text-sm">Ideal price</label>
-                      <span className="text-gray-500 text-sm font-medium">${form.idealPrice}</span>
-                    </div>
-                    <input type="range" min="30" max="300" step="5" value={form.idealPrice} onChange={e => set("idealPrice", parseInt(e.target.value))} className="w-full accent-[#B87333]" />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="font-semibold text-sm">Absolute max budget</label>
-                      <span className="text-pink-600 text-sm font-bold">${form.maxPrice}</span>
-                    </div>
-                    <p className="text-xs text-gray-400">Vendors refusing to cap under this amount will be disqualified.</p>
-                    <input type="range" min="50" max="500" step="10" value={form.maxPrice} onChange={e => set("maxPrice", parseInt(e.target.value))} className="w-full accent-[#111111]" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="font-semibold text-sm">Budget flexibility</label>
-                  <div className="flex gap-3">
-                    {[
-                      { id: "strict", label: "Strict" },
-                      { id: "flexible_for_speed", label: "Speed ok" },
-                      { id: "flexible_for_rekey", label: "Rekey ok" },
-                    ].map(b => (
-                      <label key={b.id} className={`flex-1 text-center py-2.5 text-xs font-medium rounded-[10px] border cursor-pointer transition-all ${form.budgetFlexibility === b.id ? "border-[#111111] bg-gray-50 ring-1 ring-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
-                        <input type="radio" name="budgetFlexibility" value={b.id} checked={form.budgetFlexibility === b.id} onChange={e => set("budgetFlexibility", e.target.value)} className="sr-only" />
-                        {b.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="font-semibold text-sm">New keys needed</label>
-                  <div className="flex gap-2">
-                    {[0, 1, 2, 3].map(n => (
-                      <button key={n} type="button" onClick={() => set("newKeysNeeded", n)} className={`w-12 h-12 rounded-[10px] font-medium text-sm border transition-all ${form.newKeysNeeded === n ? "bg-[#111111] text-white border-[#111111]" : "border-gray-200 hover:border-gray-300"}`}>
-                        {n}
-                      </button>
-                    ))}
-                  </div>
+                <h3 className="mb-3 text-sm font-semibold">Execution mode</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setMissionMode("reliable_demo")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      missionMode === "reliable_demo"
+                        ? "border-black bg-[#f0fbf7]"
+                        : "border-black/10 hover:border-black/30"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">Reliable Demo</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-gray-600">
+                      Disclosed simulated vendors with deterministic, state-backed results.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMissionMode("live_sandbox")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      missionMode === "live_sandbox"
+                        ? "border-black bg-[#fff3f5]"
+                        : "border-black/10 hover:border-black/30"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">Live Sandbox Proof</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-gray-600">
+                      Controlled team endpoints only, with visible reliable fallback.
+                    </span>
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Authorization */}
-          <div className="bg-white rounded-[18px] border border-black/5 shadow-sm p-6">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                required
-                checked={form.authorizationConfirmed}
-                onChange={e => set("authorizationConfirmed", e.target.checked)}
-                className="mt-0.5 w-5 h-5 rounded border-gray-300 text-[#111111] focus:ring-[#111111]"
-              />
-              <div className="text-sm">
-                <span className="font-semibold text-red-600 block mb-0.5">Required for service</span>
-                <span className="text-gray-500">I confirm I am authorized to enter this property and will have government-issued ID and proof of residence ready on arrival.</span>
+              {missionMode === "live_sandbox" && (
+                <section className="rounded-3xl border border-pink-200 bg-pink-50 p-5" aria-label="Live sandbox tester instructions">
+                  <p className="text-xs font-bold uppercase tracking-wider text-pink-700">
+                    Sandbox roleplay required
+                  </p>
+                  <h3 className="mt-2 font-serif text-xl font-semibold">
+                    The linked Keywize number calls your configured test phones.
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-pink-900">
+                    Calls run one at a time in A, B, C order. Answer each phone as the named vendor, use only the card below, and stay on until the Caller reads the quote back. If no one supplies these facts, the agent cannot save a quote.
+                  </p>
+                  <p className="mt-3 rounded-2xl bg-white/80 p-3 text-xs leading-relaxed text-pink-900">
+                    This mode launches through ElevenLabs&apos; linked Twilio integration, not Keywize&apos;s Twilio REST credentials. If the destination is a Twilio number, its inbound Voice webhook must run a controlled vendor persona. A default trial/demo prompt is not a vendor answer and can disconnect without saving a quote.
+                  </p>
+                  <ol className="mt-4 space-y-3">
+                    {LIVE_SANDBOX_VENDOR_ORDER.map((vendorId) => {
+                      const roleplay = LIVE_SANDBOX_ROLEPLAY[vendorId];
+                      return (
+                        <li key={vendorId} className="rounded-2xl bg-white/80 p-3 text-sm leading-relaxed text-gray-700">
+                          <strong className="text-black">Answer as {roleplay.label}:</strong>{" "}
+                          {roleplay.instruction}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <p className="mt-3 text-xs text-pink-700">
+                    Controlled sandbox only. No arbitrary business or browser-supplied number is dialed. If live proof fails, the UI visibly switches to disclosed replay.
+                  </p>
+                </section>
+              )}
+
+              <div className="pt-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="relative flex items-start mt-1">
+                    <input
+                      id="authorizationConfirmed"
+                      name="authorizationConfirmed"
+                      type="checkbox"
+                      required
+                      checked={form.authorizationConfirmed}
+                      onChange={e => set("authorizationConfirmed", e.target.checked)}
+                      className="w-5 h-5 rounded border-gray-300 text-[#111111] focus:ring-[#111111]"
+                    />
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-semibold text-red-600 block">Required for service</span>
+                    <span className="text-gray-600">I confirm that I am authorized to enter this property. I understand the locksmith will require government-issued ID and proof of residence upon arrival.</span>
+                  </div>
+                </label>
               </div>
-            </label>
-          </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && <p className="text-red-500 text-sm">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={!form.authorizationConfirmed || isSubmitting || (editingAddress && !addressConfirmed)}
-            className={`w-full py-4 rounded-[14px] font-semibold text-white transition-all shadow-md flex items-center justify-center gap-2 text-base ${
-              !form.authorizationConfirmed
-                ? "bg-gray-200 cursor-not-allowed text-gray-400"
-                : "bg-[#111111] hover:bg-gray-800 active:scale-[0.98] shadow-black/10"
-            }`}
-          >
-            {isSubmitting ? (
-              <>
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Finding specialists...
-              </>
-            ) : (
-              "Find Specialists →"
-            )}
-          </button>
+              <div className="mt-auto pt-8 flex flex-col-reverse gap-3 sm:flex-row sm:gap-4">
+                <button type="button" onClick={() => setStep(3)} className="w-full sm:w-1/3 py-4 rounded-full font-medium text-[#111111] border border-gray-200 hover:bg-gray-50 transition-all">
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={!form.authorizationConfirmed || isSubmitting}
+                  className={`w-full sm:w-2/3 py-4 rounded-full font-medium text-white transition-all shadow-md flex items-center justify-center gap-2
+                    ${!form.authorizationConfirmed ? "bg-gray-300 cursor-not-allowed" : "bg-[#111111] hover:bg-gray-800 active:scale-95 shadow-black/10"}`}
+                >
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Creating Mission...
+                    </span>
+                  ) : "Find Locksmiths →"}
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       </main>
     </div>
+  );
+}
+
+function IntakeLoading() {
+  return (
+    <div className="min-h-screen bg-[#fbfaf7] px-6 py-24 text-center text-sm text-gray-500">
+      Loading intake...
+    </div>
+  );
+}
+
+export default function IntakePage() {
+  return (
+    <Suspense fallback={<IntakeLoading />}>
+      <IntakePageContent />
+    </Suspense>
   );
 }

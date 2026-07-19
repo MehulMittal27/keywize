@@ -1,6 +1,6 @@
 # Twilio setup
 
-This is the phone path for Keywize.
+This document covers the Keywize customer-inbound phone stub. Live sandbox vendor calls use a separate provider path documented in [`ELEVENLABS_SETUP.md`](ELEVENLABS_SETUP.md#live-sandbox-test-procedure).
 
 ## Goal
 
@@ -55,6 +55,12 @@ TWILIO_PHONE_NUMBER=+1XXXXXXXXXX
 TWILIO_WEBHOOK_URL=https://YOUR_DEPLOYED_APP_URL/api/twilio/inbound
 ```
 
+## Live sandbox boundary
+
+Keywize live sandbox does not use `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, or Twilio's REST API to start outbound calls. The server calls ElevenLabs' Twilio outbound endpoint with an ElevenLabs-linked phone number. Check ElevenLabs Conversations first. Twilio logs appear only in the Twilio project that owns the linked outbound leg or destination inbound leg, which may not be the project configured for this inbound stub.
+
+If a team-controlled Twilio number is used as a live sandbox destination, do not point it at `/api/twilio/inbound`. Configure its **A call comes in** webhook/TwiML as a multi-turn Vendor A/B/C persona and verify it manually. A default Twilio trial/demo prompt, static "press any key to execute your code" application, or immediate hangup is not a vendor persona and cannot produce a Keywize quote webhook. Follow the readiness gate and both supported destination paths in the ElevenLabs setup guide.
+
 ## MVP behavior
 
 The current webhook returns simple TwiML:
@@ -65,7 +71,7 @@ The current webhook returns simple TwiML:
 </Response>
 ```
 
-Future work will connect the call to the ElevenLabs lockout intake agent or a Twilio Media Stream.
+Future work will connect this customer-inbound call to the ElevenLabs lockout intake agent or a Twilio Media Stream. Until then, the route speaks two static messages and ends the call. It must not be used as a sandbox vendor destination.
 
 ## Demo fallback
 

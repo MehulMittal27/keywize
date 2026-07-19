@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resetDemoMission } from "@/lib/store";
 import { DEMO_MISSION_ID } from "@/lib/mockData";
+import { toPublicMission } from "@/lib/publicMission";
 
 /**
  * POST /api/demo/reset
@@ -9,5 +10,9 @@ import { DEMO_MISSION_ID } from "@/lib/mockData";
  */
 export async function POST() {
   const mission = resetDemoMission();
-  return NextResponse.json({ reset: true, missionId: DEMO_MISSION_ID, mission });
+  return NextResponse.json({
+    reset: true,
+    missionId: DEMO_MISSION_ID,
+    mission: toPublicMission(mission),
+  });
 }

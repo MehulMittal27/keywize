@@ -327,15 +327,18 @@ function advanceNegotiationReplay(mission: Mission): void {
 
 function timeoutDiagnosticDetails(call: VendorCall): string {
   const diagnostics = ensureLiveSandboxDiagnostics(call);
+  const destinationGuidance =
+    `Check that the destination answers as ${liveSandboxVendorLabel(call.vendorId)}. ` +
+    "If it is a Twilio number, its inbound Voice webhook/TwiML must run a vendor persona, not a default trial or demo app.";
   switch (getLiveSandboxTimeoutCause(call)) {
     case "webhook_rejected":
-      return `${liveSandboxVendorLabel(call.vendorId)} timed out after save_quote reached Keywize but was rejected: ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}.`;
+      return `Call placed and tool_called, but save_quote was rejected: ${diagnostics.toolRejectionReason ?? "missing or invalid fields"}. ${destinationGuidance}`;
     case "webhook_received_no_quote":
-      return `${liveSandboxVendorLabel(call.vendorId)} timed out after save_quote reached Keywize without persisting a quote.`;
+      return `Call placed and tool_called, but no quote was saved. ${destinationGuidance}`;
     case "answered_no_webhook":
-      return `${liveSandboxVendorLabel(call.vendorId)} phone answered, but the save_quote webhook never reached Keywize before timeout.`;
+      return `Call placed, but no quote webhook arrived after ElevenLabs showed conversation activity. ${destinationGuidance}`;
     case "no_answer_observed":
-      return `${liveSandboxVendorLabel(call.vendorId)} did not produce an observed answer or save_quote webhook before timeout.`;
+      return `Call placed, but no quote webhook arrived and Keywize could not confirm an answer. ${destinationGuidance}`;
   }
 }
 
@@ -346,7 +349,7 @@ function recordLiveQuoteTimeout(mission: Mission): void {
   for (const call of pendingCalls) {
     markLiveSandboxTimedOut(call);
     addMissionEvent(mission, {
-      event: "live_quote_leg_timed_out",
+      event: "timed_out_no_quote",
       details: timeoutDiagnosticDetails(call),
       vendorId: call.vendorId,
       category: "status",

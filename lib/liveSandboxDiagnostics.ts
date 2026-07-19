@@ -10,6 +10,16 @@ export type LiveSandboxTimeoutCause =
   | "webhook_received_no_quote"
   | "no_answer_observed";
 
+export function outboundCallStartWasConfirmed(
+  payload: Record<string, unknown>
+): boolean {
+  return (
+    payload.success === true &&
+    typeof payload.conversation_id === "string" &&
+    payload.conversation_id.trim().length > 0
+  );
+}
+
 export function parseLiveSandboxFallbackMs(value: string | undefined): number {
   const configured = Number(value ?? DEFAULT_LIVE_SANDBOX_FALLBACK_MS);
   if (!Number.isFinite(configured)) return DEFAULT_LIVE_SANDBOX_FALLBACK_MS;
@@ -33,10 +43,15 @@ export function markLiveSandboxCallStarted(call: VendorCall): void {
   diagnostics.callStartedAt ??= new Date().toISOString();
 }
 
-export function markLiveSandboxPhoneAnswered(call: VendorCall): boolean {
+export function markLiveSandboxPhoneAnswered(
+  call: VendorCall,
+  evidence: NonNullable<VendorCall["liveDiagnostics"]>["answerEvidence"] =
+    "elevenlabs_conversation_activity"
+): boolean {
   const diagnostics = ensureLiveSandboxDiagnostics(call);
   if (diagnostics.phoneAnsweredAt) return false;
   diagnostics.phoneAnsweredAt = new Date().toISOString();
+  diagnostics.answerEvidence = evidence;
   return true;
 }
 
@@ -99,9 +114,7 @@ export function providerConversationShowsAnswer(
   const transcript = payload.transcript;
   if (Array.isArray(transcript) && transcript.length > 0) return true;
 
-  return ["in_progress", "processing"].includes(
-    normalizedProviderStatus(payload)
-  );
+  return normalizedProviderStatus(payload) === "in_progress";
 }
 
 export function providerConversationHasEnded(

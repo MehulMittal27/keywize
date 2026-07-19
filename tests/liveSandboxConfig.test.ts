@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   inspectLiveSandboxConfig,
+  inspectLiveSandboxTelephony,
   liveSandboxConfigFallbackReason,
+  liveSandboxTelephonyBlockingReason,
 } from "../lib/liveSandboxConfig";
 
 const completeCanonicalEnvironment = {
@@ -52,6 +54,54 @@ test("accepts the legacy sandbox phone number ID alias", () => {
       missingEnvNames: [],
     }
   );
+});
+
+test("reports the fixed provider boundary without any configured identifiers", () => {
+  const diagnostics = inspectLiveSandboxTelephony({
+    ...completeCanonicalEnvironment,
+    KEYWIZE_SANDBOX_DESTINATION_KIND: "human_tester",
+  });
+
+  assert.deepEqual(diagnostics, {
+    outboundInitiator: "elevenlabs",
+    telephonyIntegration: "twilio",
+    keywizeUsesTwilioRestApi: false,
+    destinationKind: "human_tester",
+    destinationPersonaReady: true,
+    setupIssue: undefined,
+  });
+  assert.equal(JSON.stringify(diagnostics).includes("dummy-"), false);
+});
+
+test("blocks a declared Twilio destination until its vendor persona is confirmed", () => {
+  const unready = inspectLiveSandboxTelephony({
+    KEYWIZE_SANDBOX_DESTINATION_KIND: "twilio_vendor_persona",
+  });
+  assert.equal(unready.destinationPersonaReady, false);
+  assert.equal(unready.setupIssue, "twilio_vendor_persona_not_confirmed");
+  assert.match(
+    liveSandboxTelephonyBlockingReason(unready) ?? "",
+    /inbound Voice webhook\/TwiML/
+  );
+
+  const ready = inspectLiveSandboxTelephony({
+    KEYWIZE_SANDBOX_DESTINATION_KIND: "twilio_vendor_persona",
+    KEYWIZE_SANDBOX_TWILIO_PERSONA_READY: "true",
+  });
+  assert.equal(ready.destinationPersonaReady, true);
+  assert.equal(ready.setupIssue, undefined);
+  assert.equal(liveSandboxTelephonyBlockingReason(ready), undefined);
+});
+
+test("keeps undeclared legacy destinations usable but diagnoses the ambiguity", () => {
+  assert.deepEqual(inspectLiveSandboxTelephony({}), {
+    outboundInitiator: "elevenlabs",
+    telephonyIntegration: "twilio",
+    keywizeUsesTwilioRestApi: false,
+    destinationKind: "unspecified",
+    destinationPersonaReady: null,
+    setupIssue: "destination_kind_not_declared",
+  });
 });
 
 test("treats whitespace-only variables as missing", () => {
