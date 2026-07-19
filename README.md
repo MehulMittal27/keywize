@@ -85,7 +85,15 @@ Copy the example file:
 cp .env.example .env.local
 ```
 
-Then fill in the values you have available. The MVP can run with mock data before real Twilio or ElevenLabs integration is complete.
+Then fill in the values you have available. The default judged flow needs no voice credentials.
+
+### Reliable judge demo
+
+Open `/intake`, leave **Reliable Demo** selected, and submit the authorized form. The server stores ordered mission events while it replays the disclosed Vendor A, B, and C personas. After all quotes are ready, select **Negotiate fastest option** to validate Vendor B's stored $130 all-in quote as leverage and persist Vendor C's $145 all-in result.
+
+### Optional live sandbox proof
+
+Select **Live Sandbox Proof** only after configuring the server-only allowlist and roleplay procedure documented in [`docs/ELEVENLABS_SETUP.md`](docs/ELEVENLABS_SETUP.md#live-sandbox-test-procedure). It can dial only team-controlled persona endpoints. Calls run sequentially, and the receiving tester must answer as Vendor A, B, then C using the on-screen facts. The browser never supplies or receives a destination, agent ID, phone number ID, or raw provider ID. Safe status diagnostics explain unanswered calls, missing or rejected `save_quote` webhooks, timeout, and the visibly labeled reliable replay fallback.
 
 ## Docs
 
